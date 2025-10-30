@@ -14,6 +14,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.Configure<KafkaOptions>(builder.Configuration.GetSection("Kafka"));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<KafkaOptions>>().Value);
 builder.Services.AddSingleton<CityCatalog>();
+builder.Services.AddHostedService<KafkaTopicSeeder>();
 builder.Services.AddHostedService<TallyWorker>();
 
 var host = builder.Build();

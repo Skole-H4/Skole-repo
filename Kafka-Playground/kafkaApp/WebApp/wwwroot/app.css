@@ -49,3 +49,20 @@ h1:focus {
 .darker-border-checkbox.form-check-input {
     border-color: #929292;
 }
+
+.dashboard-card {
+    background: linear-gradient(135deg, #0d6efd, #6610f2);
+    border-radius: 1rem;
+    color: #fff;
+}
+
+.progress-thin {
+    height: 0.5rem;
+    background-color: rgba(13, 110, 253, 0.1);
+    border-radius: 0.5rem;
+}
+
+.progress-thin .progress-bar {
+    background: linear-gradient(90deg, #0d6efd, #20c997);
+    border-radius: 0.5rem;
+}

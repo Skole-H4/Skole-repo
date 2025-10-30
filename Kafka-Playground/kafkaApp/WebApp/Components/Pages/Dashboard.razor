@@ -1,0 +1,261 @@
+@page "/dashboard"
+@rendermode InteractiveServer
+@inject VoteTotalsStore TotalsStore
+@inject CityVoteStore CityVoteStore
+@inject WebApp.Services.PartyCatalog PartyCatalog
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using System.Collections.Generic
+@using System.Linq
+@using WebApp.Models
+@using WebApp.Services
+@implements IDisposable
+
+<div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
+    <div>
+        <h3 class="mb-0">Live Dashboard</h3>
+        <p class="text-muted mb-0">Real-time overview of simulated votes</p>
+    </div>
+    <span class="badge text-bg-success px-3 py-2 shadow-sm">Live updating</span>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-12 col-md-4">
+        <div class="dashboard-card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <p class="card-subtitle text-uppercase small text-white-50">Total votes</p>
+                <h2 class="display-6 fw-semibold text-white">@OverallTotal.ToString("N0")</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-4">
+        <div class="dashboard-card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <p class="card-subtitle text-uppercase small text-white-50">Leading party</p>
+                @if (LeadingParty is not null)
+                {
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="badge bg-light text-dark fs-5">@LeadingParty.PartyLetter</span>
+                        <div>
+                            <h5 class="mb-0 text-white">@LeadingParty.RealPartyName</h5>
+                            <span class="text-white-50">@GetShareText(LeadingParty.PartyLetter)</span>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <p class="text-white mb-0">No votes yet</p>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-4">
+        <div class="dashboard-card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <p class="card-subtitle text-uppercase small text-white-50">Active cities</p>
+                <h2 class="display-6 fw-semibold text-white">@ActiveCityCount</h2>
+                <p class="mb-0 text-white-50">Cities currently reporting votes</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body">
+        <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
+            <h5 class="card-title mb-0">Party distribution</h5>
+            <span class="text-muted">Updated @GetLatestUpdateText()</span>
+        </div>
+        @if (_partyOrder.Length == 0)
+        {
+            <p class="text-muted mb-0">No party data available.</p>
+        }
+        else if (OverallTotal == 0)
+        {
+            <p class="text-muted mb-0">No votes registered yet.</p>
+        }
+        else
+        {
+            @foreach (var party in _partyOrder)
+            {
+                var count = GetTotalForParty(party.PartyLetter);
+                var share = GetShare(party.PartyLetter);
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge bg-primary-subtle text-primary-emphasis">@party.PartyLetter</span>
+                            <span class="fw-semibold">@party.RealPartyName</span>
+                        </div>
+                        <span class="text-muted">@count.ToString("N0") votes</span>
+                    </div>
+                    <div class="progress progress-thin">
+                        <div class="progress-bar" role="progressbar" style="width: @share.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)%" aria-valuenow="@share" aria-valuemin="0" aria-valuemax="100">
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<div class="card shadow-sm border-0">
+    <div class="card-body">
+        <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
+            <h5 class="card-title mb-0">City breakdown</h5>
+            <span class="text-muted">Totals per city and party</span>
+        </div>
+        @if (_citySnapshots.Count == 0)
+        {
+            <p class="text-muted mb-0">No city votes reported yet.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col">Zip</th>
+                            <th scope="col">City</th>
+                            @foreach (var party in _partyOrder)
+                            {
+                                <th scope="col" class="text-end">@party.PartyLetter</th>
+                            }
+                            <th scope="col" class="text-end">Total</th>
+                            <th scope="col" class="text-end">Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var snapshot in _citySnapshots)
+                        {
+                            <tr>
+                                <td>@(snapshot.ZipCode <= 0 ? "—" : snapshot.ZipCode.ToString())</td>
+                                <td>@snapshot.City</td>
+                                @foreach (var party in _partyOrder)
+                                {
+                                    var partyCount = GetCityPartyCount(snapshot, party.PartyLetter);
+                                    <td class="text-end">@partyCount.ToString("N0")</td>
+                                }
+                                <td class="text-end fw-semibold">@snapshot.TotalVotes.ToString("N0")</td>
+                                <td class="text-end text-muted">@snapshot.UpdatedAt.ToLocalTime().ToString("T")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private readonly Dictionary<string, int> _totals = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<CityVoteSnapshot> _citySnapshots = Array.Empty<CityVoteSnapshot>();
+    private PartyInfo[] _partyOrder = Array.Empty<PartyInfo>();
+    private bool _subscribed;
+
+    private int OverallTotal => _totals.Values.Sum();
+    private int ActiveCityCount => _citySnapshots.Count(snapshot => snapshot.TotalVotes > 0);
+
+    private PartyInfo? LeadingParty => _partyOrder
+        .Select(p => new
+        {
+            Party = p,
+            Count = GetTotalForParty(p.PartyLetter)
+        })
+        .OrderByDescending(x => x.Count)
+        .ThenBy(x => x.Party.PartyLetter, StringComparer.OrdinalIgnoreCase)
+        .FirstOrDefault(x => x.Count > 0)?
+        .Party;
+
+    protected override void OnInitialized()
+    {
+        _partyOrder = PartyCatalog.Parties.ToArray();
+        SyncFromStores();
+        TotalsStore.TotalsChanged += HandleTotalsChanged;
+        CityVoteStore.CityVotesChanged += HandleCityVotesChanged;
+        _subscribed = true;
+    }
+
+    private void SyncFromStores()
+    {
+        UpdateTotals(TotalsStore.GetSnapshot());
+        UpdateCities(CityVoteStore.GetSnapshot());
+    }
+
+    private void HandleTotalsChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            UpdateTotals(TotalsStore.GetSnapshot());
+            StateHasChanged();
+        });
+    }
+
+    private void HandleCityVotesChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            UpdateCities(CityVoteStore.GetSnapshot());
+            StateHasChanged();
+        });
+    }
+
+    private void UpdateTotals(IReadOnlyDictionary<string, int> totals)
+    {
+        _totals.Clear();
+        foreach (var kv in totals)
+        {
+            _totals[kv.Key] = kv.Value;
+        }
+    }
+
+    private void UpdateCities(IReadOnlyList<CityVoteSnapshot> cities)
+    {
+        _citySnapshots = cities;
+    }
+
+    private int GetTotalForParty(string partyLetter)
+        => _totals.TryGetValue(partyLetter, out var value) ? value : 0;
+
+    private double GetShare(string partyLetter)
+    {
+        var total = OverallTotal;
+        if (total == 0)
+        {
+            return 0d;
+        }
+
+        return Math.Round(GetTotalForParty(partyLetter) * 100d / total, 1, MidpointRounding.AwayFromZero);
+    }
+
+    private string GetShareText(string partyLetter)
+    {
+        var share = GetShare(partyLetter);
+        if (share <= 0)
+        {
+            return "0% of votes";
+        }
+
+        return $"{share.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}% of votes";
+    }
+
+    private int GetCityPartyCount(CityVoteSnapshot snapshot, string partyLetter)
+        => snapshot.PartyTotals.TryGetValue(partyLetter, out var value) ? value : 0;
+
+    private string GetLatestUpdateText()
+    {
+        var latest = _citySnapshots.Count > 0
+            ? _citySnapshots.Max(s => s.UpdatedAt).ToLocalTime().ToString("T")
+            : "No data yet";
+        return latest;
+    }
+
+    public void Dispose()
+    {
+        if (_subscribed)
+        {
+            TotalsStore.TotalsChanged -= HandleTotalsChanged;
+            CityVoteStore.CityVotesChanged -= HandleCityVotesChanged;
+            _subscribed = false;
+        }
+    }
+}

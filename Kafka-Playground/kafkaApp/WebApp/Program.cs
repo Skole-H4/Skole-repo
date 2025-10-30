@@ -5,6 +5,7 @@ using Confluent.Kafka;
 using Confluent.Kafka.SyncOverAsync;
 using Confluent.SchemaRegistry;
 using Confluent.SchemaRegistry.Serdes;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using WebApp.Components;
 using WebApp.Configuration;
@@ -22,6 +23,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton<PartyCatalog>();
 builder.Services.AddSingleton<CityCatalog>();
 builder.Services.AddSingleton<VoteTotalsStore>();
+builder.Services.AddSingleton<CityVoteStore>();
 
 builder.Services.AddSingleton<ISchemaRegistryClient>(sp =>
 {
@@ -55,7 +57,9 @@ builder.Services.AddSingleton<IProducer<string, VoteEvent>>(sp =>
 });
 
 builder.Services.AddSingleton<CityAutoVoteManager>();
+builder.Services.AddHostedService<KafkaTopicSeeder>();
 builder.Services.AddHostedService<TotalsConsumer>();
+builder.Services.AddHostedService<CityVotesConsumer>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -75,6 +79,7 @@ app.UseStaticFiles();
 app.UseAntiforgery();
 
 app.MapGet("/api/totals", (VoteTotalsStore store) => Results.Json(store.GetSnapshot()));
+app.MapGet("/api/cities", (CityVoteStore store) => Results.Json(store.GetSnapshot()));
 
 app.MapPost("/api/vote", async (VoteRequest request, CityCatalog catalog, PartyCatalog partyCatalog, IProducer<string, VoteEvent> producer, KafkaOptions kafkaOptions) =>
 {
@@ -258,6 +263,72 @@ sealed class TotalsConsumer : BackgroundService
                     if (result?.Message?.Value is { } total && !string.IsNullOrWhiteSpace(total.Option))
                     {
                         _store.SetTotal(total.Option, total.Count);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // expected on shutdown
+            }
+            finally
+            {
+                try
+                {
+                    consumer.Close();
+                }
+                catch
+                {
+                    // swallow shutdown errors
+                }
+            }
+        }, stoppingToken);
+    }
+}
+
+sealed class CityVotesConsumer : BackgroundService
+{
+    private readonly CityVoteStore _store;
+    private readonly ISchemaRegistryClient _schemaRegistryClient;
+    private readonly KafkaOptions _options;
+
+    public CityVotesConsumer(CityVoteStore store, ISchemaRegistryClient schemaRegistryClient, KafkaOptions options)
+    {
+        _store = store;
+        _schemaRegistryClient = schemaRegistryClient;
+        _options = options;
+    }
+
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        return Task.Run(() =>
+        {
+            var config = new ConsumerConfig
+            {
+                BootstrapServers = _options.BootstrapServers,
+                GroupId = _options.UiCityGroupId ?? "webapp-city-metrics",
+                AutoOffsetReset = AutoOffsetReset.Earliest,
+                EnableAutoCommit = true,
+                IsolationLevel = IsolationLevel.ReadCommitted
+            };
+
+            config.Set("socket.keepalive.enable", "true");
+            config.Set("debug", "broker,protocol,security");
+            config.Set("broker.address.family", "v4");
+
+            using var consumer = new ConsumerBuilder<string, VoteTotal>(config)
+                .SetValueDeserializer(new JsonDeserializer<VoteTotal>(_schemaRegistryClient).AsSyncOverAsync())
+                .Build();
+
+            consumer.Subscribe(_options.VotesByCityTopic);
+
+            try
+            {
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    var result = consumer.Consume(stoppingToken);
+                    if (result?.Message?.Value is { } total && !string.IsNullOrWhiteSpace(total.Option))
+                    {
+                        _store.SetCityVote(total);
                     }
                 }
             }

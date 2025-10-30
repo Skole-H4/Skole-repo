@@ -5,6 +5,8 @@
 @inject VoteTotalsStore TotalsStore
 @inject CityAutoVoteManager AutoVoteManager
 @inject WebApp.Services.PartyCatalog PartyCatalog
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
 @using System.Collections.Generic
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Components.Forms
@@ -13,32 +15,30 @@
 @using WebApp.Components
 @using WebApp.Models
 
-<PageTitle>Live Votes</PageTitle>
-
 <h3>Live Votes</h3>
 
 <div class="row g-4">
 	<div class="col-12 col-md-6">
-		<EditForm Model="_form" OnValidSubmit="SubmitAsync">
-			<DataAnnotationsValidator />
+		<Microsoft.AspNetCore.Components.Forms.EditForm Model="_form" OnValidSubmit="SubmitAsync">
+			<Microsoft.AspNetCore.Components.Forms.DataAnnotationsValidator />
 			<div class="mb-3">
 				<label class="form-label">User Id</label>
-				<InputText class="form-control" @bind-Value="_form.UserId" />
-				<ValidationMessage For="() => _form.UserId" />
+				<Microsoft.AspNetCore.Components.Forms.InputText class="form-control" @bind-Value="_form.UserId" />
+				<Microsoft.AspNetCore.Components.Forms.ValidationMessage For="() => _form.UserId" />
 			</div>
 			<div class="mb-3">
 				<label class="form-label">Option</label>
-				<InputSelect class="form-select" @bind-Value="_form.Option">
+				<Microsoft.AspNetCore.Components.Forms.InputSelect class="form-select" @bind-Value="_form.Option">
 					@foreach (var party in _parties)
 					{
 						<option value="@party.PartyLetter">@party.PartyLetter - @party.RealPartyName</option>
 					}
-				</InputSelect>
+				</Microsoft.AspNetCore.Components.Forms.InputSelect>
 			</div>
 			<button class="btn btn-primary" type="submit" disabled="@_busy">
 				@(_busy ? "Sending…" : "Vote")
 			</button>
-		</EditForm>
+		</Microsoft.AspNetCore.Components.Forms.EditForm>
 
 		@if (!string.IsNullOrWhiteSpace(_status))
 		{
@@ -47,10 +47,10 @@
 	</div>
 
 	<div class="col-12 col-md-6">
-		<VoteTotals Title="Totals (compacted)"
-			       EmptyText="No totals yet"
-			       Status="@_totalsStatus"
-			       RefreshRequested="RefreshAsync" />
+		<WebApp.Components.Shared.VoteTotals Title="Totals (compacted)"
+		       EmptyText="No totals yet"
+		       Status="@_totalsStatus"
+		       RefreshRequested="RefreshAsync" />
 	</div>
 </div>
 
@@ -86,7 +86,7 @@
 			@foreach (var controller in _cityControllers)
 			{
 				<div class="col">
-					<CityAutoVote Controller="@controller" />
+					<WebApp.Components.Shared.CityAutoVote Controller="@controller" />
 				</div>
 			}
 		</div>

@@ -9,4 +9,6 @@ public sealed class KafkaOptions
     public string VotesByCityTopic { get; set; } = "votes-by-city";
     public string TallyGroupId { get; set; } = "tally-service";
     public string TallyTransactionalId { get; set; } = "tally-service-tx-1";
+    public int DefaultPartitions { get; set; } = 3;
+    public short DefaultReplicationFactor { get; set; } = 1;
 }
