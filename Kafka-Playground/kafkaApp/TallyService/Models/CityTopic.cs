@@ -1,7 +1,7 @@
+namespace TallyService.Models;
+
 using System;
 using System.Text;
-
-namespace TallyService.Models;
 
 public sealed class CityTopic
 {

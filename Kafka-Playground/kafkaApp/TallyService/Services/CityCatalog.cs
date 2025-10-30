@@ -1,3 +1,5 @@
+namespace TallyService.Services;
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -5,11 +7,10 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
+using TallyService.Abstractions;
 using TallyService.Models;
 
-namespace TallyService.Services;
-
-public sealed class CityCatalog
+public sealed class CityCatalog : ICityCatalog
 {
     private static readonly string[] ZipcodesPathSegments = ["..", "..", "appData", "zipcodes.json"];
 
@@ -19,6 +20,8 @@ public sealed class CityCatalog
 
     public CityCatalog(IHostEnvironment environment)
     {
+        ArgumentNullException.ThrowIfNull(environment);
+
         var path = ResolvePath(environment);
         if (!File.Exists(path))
         {
@@ -53,9 +56,15 @@ public sealed class CityCatalog
 
     public IReadOnlyList<CityTopic> Cities => _cities;
 
-    public bool TryGetByTopic(string topic, out CityTopic? city)
+    public bool TryGetByTopic(string topicName, out CityTopic? city)
     {
-        if (_topicLookup.TryGetValue(topic, out var value))
+        if (string.IsNullOrWhiteSpace(topicName))
+        {
+            city = null;
+            return false;
+        }
+
+        if (_topicLookup.TryGetValue(topicName, out var value))
         {
             city = value;
             return true;
@@ -67,6 +76,12 @@ public sealed class CityCatalog
 
     public bool TryResolve(string value, out CityTopic? city)
     {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            city = null;
+            return false;
+        }
+
         if (_lookup.TryGetValue(value, out var match))
         {
             city = match;
