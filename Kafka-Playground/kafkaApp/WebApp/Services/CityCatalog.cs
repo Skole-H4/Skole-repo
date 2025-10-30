@@ -11,7 +11,7 @@ namespace WebApp.Services;
 
 public sealed class CityCatalog
 {
-    private static readonly string[] ZipcodesPathSegments = ["..", "..", "data", "Zipcodes", "zipcodes.json"];
+    private static readonly string[] ZipcodesPathSegments = ["..", "..", "appData", "zipcodes.json"];
 
     private readonly IReadOnlyList<CityTopic> _cities;
     private readonly IReadOnlyDictionary<string, CityTopic> _byTopic;
