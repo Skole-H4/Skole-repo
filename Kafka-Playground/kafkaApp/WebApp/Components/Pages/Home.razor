@@ -4,6 +4,8 @@
 @inject NavigationManager Navigation
 @inject VoteTotalsStore TotalsStore
 @inject CityAutoVoteManager AutoVoteManager
+@inject WebApp.Services.PartyCatalog PartyCatalog
+@using System.Collections.Generic
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Web
@@ -27,9 +29,10 @@
 			<div class="mb-3">
 				<label class="form-label">Option</label>
 				<InputSelect class="form-select" @bind-Value="_form.Option">
-					<option value="A">A</option>
-					<option value="B">B</option>
-					<option value="C">C</option>
+					@foreach (var party in _parties)
+					{
+						<option value="@party.PartyLetter">@party.PartyLetter - @party.RealPartyName</option>
+					}
 				</InputSelect>
 			</div>
 			<button class="btn btn-primary" type="submit" disabled="@_busy">
@@ -93,13 +96,16 @@
 @code {
 	private readonly VoteForm _form = new();
 	private bool _busy;
-	private string _status = string.Empty;
-	private string _totalsStatus = string.Empty;
+    private string _status = string.Empty;
+    private string _totalsStatus = string.Empty;
+    private IReadOnlyList<PartyInfo> _parties = Array.Empty<PartyInfo>();
     private IReadOnlyList<CityAutoVoteController> _cityControllers = Array.Empty<CityAutoVoteController>();
     private int _allCitiesRate = 1_000;
 
 	protected override async Task OnInitializedAsync()
 	{
+		_parties = PartyCatalog.Parties;
+		_form.Option = _parties.Count > 0 ? _parties[0].PartyLetter : string.Empty;
 		_cityControllers = AutoVoteManager.Controllers;
 		await RefreshAsync();
 	}
@@ -120,9 +126,14 @@
 			var payload = new VoteRequest
 			{
 				UserId = _form.UserId,
-				Option = _form.Option,
+				Option = _form.Option?.Trim() ?? string.Empty,
 				TargetTopics = new List<string>()
 			};
+			if (!PartyCatalog.TryGetByLetter(payload.Option, out _))
+			{
+				_status = "Select a valid party option.";
+				return;
+			}
 			var response = await client.PostAsJsonAsync("api/vote", payload);
 			_status = response.IsSuccessStatusCode ? "Vote queued ✅" : $"Error: {response.StatusCode}";
 			await RefreshAsync();
@@ -217,7 +228,6 @@
 		public string UserId { get; set; } = string.Empty;
 
 		[Required]
-		[RegularExpression("^[ABC]$", ErrorMessage = "Select A, B, or C")]
-		public string Option { get; set; } = "A";
+		public string Option { get; set; } = string.Empty;
 	}
 }

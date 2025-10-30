@@ -13,12 +13,17 @@ public sealed class CityAutoVoteManager : IAsyncDisposable
     private readonly List<CityAutoVoteController> _controllers;
     private readonly Dictionary<string, CityAutoVoteController> _byTopic;
 
-    public CityAutoVoteManager(IProducer<string, VoteEvent> producer, CityCatalog catalog)
+    public CityAutoVoteManager(IProducer<string, VoteEvent> producer, CityCatalog catalog, PartyCatalog partyCatalog)
     {
         _catalog = catalog;
+        var options = partyCatalog.PartyLetters;
+        if (options.Count == 0)
+        {
+            throw new InvalidOperationException("No party options available for auto vote manager");
+        }
         _controllers = catalog.Cities
             .OrderBy(city => city.ZipCode)
-            .Select(city => new CityAutoVoteController(city, producer))
+            .Select(city => new CityAutoVoteController(city, producer, options))
             .ToList();
         _byTopic = _controllers.ToDictionary(c => c.Topic.TopicName, StringComparer.OrdinalIgnoreCase);
     }

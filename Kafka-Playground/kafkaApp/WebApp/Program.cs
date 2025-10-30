@@ -18,7 +18,8 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<KafkaOptions>
 
 builder.Services.AddHttpClient();
 
-// Shared city metadata and live in-memory state keyed by option (A/B/C) with change notifications
+// Shared metadata and live in-memory state keyed by vote option with change notifications
+builder.Services.AddSingleton<PartyCatalog>();
 builder.Services.AddSingleton<CityCatalog>();
 builder.Services.AddSingleton<VoteTotalsStore>();
 
@@ -75,7 +76,7 @@ app.UseAntiforgery();
 
 app.MapGet("/api/totals", (VoteTotalsStore store) => Results.Json(store.GetSnapshot()));
 
-app.MapPost("/api/vote", async (VoteRequest request, CityCatalog catalog, IProducer<string, VoteEvent> producer, KafkaOptions kafkaOptions) =>
+app.MapPost("/api/vote", async (VoteRequest request, CityCatalog catalog, PartyCatalog partyCatalog, IProducer<string, VoteEvent> producer, KafkaOptions kafkaOptions) =>
 {
     if (string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.Option))
     {
@@ -83,9 +84,9 @@ app.MapPost("/api/vote", async (VoteRequest request, CityCatalog catalog, IProdu
     }
 
     var option = request.Option.Trim().ToUpperInvariant();
-    if (option is not ("A" or "B" or "C"))
+    if (!partyCatalog.TryGetByLetter(option, out _))
     {
-        return Results.BadRequest("Option must be A, B, or C.");
+        return Results.BadRequest($"Unknown option '{option}'.");
     }
 
     var vote = new VoteEvent

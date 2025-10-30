@@ -1,14 +1,74 @@
-{
-    "A": "Socialdemokratiet",
-    "B": "Radikale Venstre",
-    "C": "Det Konservative Folkeparti",
-    "F": "Socialistisk Folkeparti",
-    "H": "Borgernes Parti",
-    "I": "Liberal Alliance",
-    "M": "Moderaterne",
-    "O": "Dansk Folkeparti",
-    "V": "Venstre, Danmarks Liberale Parti",
-    "Æ": "Danmarksdemokraterne",
-    "Ø": "Enhedslisten - De Rød-Grønne",
-    "Å": "Alternativet"
-}
+[
+    {
+        "RealPartyName": "Socialdemokratiet",
+        "ASCIIPartyName": "Socialdemokratiet",
+        "PartyLetter": "A",
+        "ASCIIFriendlyPartyLetter": "A"
+    },
+    {
+        "RealPartyName": "Radikale Venstre",
+        "ASCIIPartyName": "Radikale Venstre",
+        "PartyLetter": "B",
+        "ASCIIFriendlyPartyLetter": "B"
+    },
+    {
+        "RealPartyName": "Det Konservative Folkeparti",
+        "ASCIIPartyName": "Det Konservative Folkeparti",
+        "PartyLetter": "C",
+        "ASCIIFriendlyPartyLetter": "C"
+    },
+    {
+        "RealPartyName": "Socialistisk Folkeparti",
+        "ASCIIPartyName": "Socialistisk Folkeparti",
+        "PartyLetter": "F",
+        "ASCIIFriendlyPartyLetter": "F"
+    },
+    {
+        "RealPartyName": "Borgernes Parti",
+        "ASCIIPartyName": "Borgernes Parti",
+        "PartyLetter": "H",
+        "ASCIIFriendlyPartyLetter": "H"
+    },
+    {
+        "RealPartyName": "Liberal Alliance",
+        "ASCIIPartyName": "Liberal Alliance",
+        "PartyLetter": "I",
+        "ASCIIFriendlyPartyLetter": "I"
+    },
+    {
+        "RealPartyName": "Moderaterne",
+        "ASCIIPartyName": "Moderaterne",
+        "PartyLetter": "M",
+        "ASCIIFriendlyPartyLetter": "M"
+    },
+    {
+        "RealPartyName": "Dansk Folkeparti",
+        "ASCIIPartyName": "Dansk Folkeparti",
+        "PartyLetter": "O",
+        "ASCIIFriendlyPartyLetter": "O"
+    },
+    {
+        "RealPartyName": "Venstre, Danmarks Liberale Parti",
+        "ASCIIPartyName": "Venstre, Danmarks Liberale Parti",
+        "PartyLetter": "V",
+        "ASCIIFriendlyPartyLetter": "V"
+    },
+    {
+        "RealPartyName": "Danmarksdemokraterne",
+        "ASCIIPartyName": "Danmarksdemokraterne",
+        "PartyLetter": "Æ",
+        "ASCIIFriendlyPartyLetter": "Ae"
+    },
+    {
+        "RealPartyName": "Enhedslisten - De Rød-Grønne",
+        "ASCIIPartyName": "Enhedslisten - De Roed-Groenne",
+        "PartyLetter": "Ø",
+        "ASCIIFriendlyPartyLetter": "Oe"
+    },
+    {
+        "RealPartyName": "Alternativet",
+        "ASCIIPartyName": "Alternativet",
+        "PartyLetter": "Å",
+        "ASCIIFriendlyPartyLetter": "Aa"
+    }
+]

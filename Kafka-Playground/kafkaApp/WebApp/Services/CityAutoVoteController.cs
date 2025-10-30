@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Confluent.Kafka;
@@ -11,9 +13,8 @@ public sealed class CityAutoVoteController : IAsyncDisposable
 {
     public const int MaxVotesPerMinute = 20_000;
 
-    private static readonly string[] Options = ["A", "B", "C"];
-
     private readonly IProducer<string, VoteEvent> _producer;
+    private readonly string[] _options;
     private readonly object _gate = new();
 
     private CancellationTokenSource? _cts;
@@ -24,10 +25,16 @@ public sealed class CityAutoVoteController : IAsyncDisposable
     private string? _lastError;
     private int _isRunning;
 
-    public CityAutoVoteController(CityTopic topic, IProducer<string, VoteEvent> producer)
+    public CityAutoVoteController(CityTopic topic, IProducer<string, VoteEvent> producer, IReadOnlyList<string> options)
     {
+        if (options is null || options.Count == 0)
+        {
+            throw new ArgumentException("At least one option is required", nameof(options));
+        }
+
         Topic = topic;
         _producer = producer;
+        _options = options.ToArray();
     }
 
     public CityTopic Topic { get; }
@@ -125,7 +132,7 @@ public sealed class CityAutoVoteController : IAsyncDisposable
                 var vote = new VoteEvent
                 {
                     UserId = $"auto-{Topic.ZipCode}-{Random.Shared.Next(1, 1_000_000):D6}",
-                    Option = Options[Random.Shared.Next(Options.Length)],
+                    Option = _options[Random.Shared.Next(_options.Length)],
                     Timestamp = DateTimeOffset.UtcNow
                 };
 
