@@ -1,0 +1,2 @@
+When troubleshooting Docker connectivity, always limit the waiting time to 3 seconds or less to avoid long delays. No matter what tool is being used, Curl, Invoke-WebRequest, and so on.
+We're doing this locally, and expect speed to be present. If the connection takes longer than 3 seconds, something is wrong. Unless an environment was just started.

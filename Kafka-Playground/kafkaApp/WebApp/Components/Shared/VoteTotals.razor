@@ -1,0 +1,126 @@
+@inject VoteTotalsStore TotalsStore
+@implements IDisposable
+
+<div class="card shadow-sm">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>@Title</span>
+        @if (ShowRefresh)
+        {
+            <button class="btn btn-outline-secondary btn-sm" @onclick="RefreshAsync" disabled="@_busy">
+                Refresh
+            </button>
+        }
+    </div>
+    <div class="card-body">
+        @if (!string.IsNullOrWhiteSpace(Status) && ShowStatus)
+        {
+            <div class="text-muted mb-2">@Status</div>
+        }
+        <table class="table table-sm mb-0">
+            <thead>
+                <tr><th>Option</th><th class="text-end">Count</th></tr>
+            </thead>
+            <tbody>
+                @if (_totals.Count == 0)
+                {
+                    <tr><td colspan="2" class="text-muted">@EmptyText</td></tr>
+                }
+                else
+                {
+                    @foreach (var kv in _totals)
+                    {
+                        <tr><td>@kv.Key</td><td class="text-end">@kv.Value</td></tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = "Totals";
+
+    [Parameter]
+    public string EmptyText { get; set; } = "No totals yet";
+
+    [Parameter]
+    public bool ShowRefresh { get; set; } = true;
+
+    [Parameter]
+    public bool ShowStatus { get; set; } = true;
+
+    [Parameter]
+    public string? Status { get; set; }
+
+    [Parameter]
+    public EventCallback RefreshRequested { get; set; }
+
+    private readonly Dictionary<string, int> _totals = new(StringComparer.OrdinalIgnoreCase);
+    private bool _subscribed;
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (!_subscribed)
+        {
+            TotalsStore.TotalsChanged += HandleTotalsChanged;
+            _subscribed = true;
+        }
+
+        UpdateTotalsFromStore();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (!RefreshRequested.HasDelegate || _busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        StateHasChanged();
+
+        try
+        {
+            await RefreshRequested.InvokeAsync(null);
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private void HandleTotalsChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            UpdateTotalsFromStore();
+            StateHasChanged();
+        });
+    }
+
+    private void UpdateTotalsFromStore()
+    {
+        ApplyTotals(TotalsStore.GetSnapshot());
+    }
+
+    private void ApplyTotals(IEnumerable<KeyValuePair<string, int>> totals)
+    {
+        _totals.Clear();
+        foreach (var kv in totals.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            _totals[kv.Key] = kv.Value;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_subscribed)
+        {
+            TotalsStore.TotalsChanged -= HandleTotalsChanged;
+            _subscribed = false;
+        }
+    }
+}

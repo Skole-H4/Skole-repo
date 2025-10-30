@@ -1,0 +1,223 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager Navigation
+@inject VoteTotalsStore TotalsStore
+@inject CityAutoVoteManager AutoVoteManager
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+@using System.Net.Http.Json
+@using WebApp.Components
+@using WebApp.Models
+
+<PageTitle>Live Votes</PageTitle>
+
+<h3>Live Votes</h3>
+
+<div class="row g-4">
+	<div class="col-12 col-md-6">
+		<EditForm Model="_form" OnValidSubmit="SubmitAsync">
+			<DataAnnotationsValidator />
+			<div class="mb-3">
+				<label class="form-label">User Id</label>
+				<InputText class="form-control" @bind-Value="_form.UserId" />
+				<ValidationMessage For="() => _form.UserId" />
+			</div>
+			<div class="mb-3">
+				<label class="form-label">Option</label>
+				<InputSelect class="form-select" @bind-Value="_form.Option">
+					<option value="A">A</option>
+					<option value="B">B</option>
+					<option value="C">C</option>
+				</InputSelect>
+			</div>
+			<button class="btn btn-primary" type="submit" disabled="@_busy">
+				@(_busy ? "Sending…" : "Vote")
+			</button>
+		</EditForm>
+
+		@if (!string.IsNullOrWhiteSpace(_status))
+		{
+			<div class="mt-3 text-muted">@_status</div>
+		}
+	</div>
+
+	<div class="col-12 col-md-6">
+		<VoteTotals Title="Totals (compacted)"
+			       EmptyText="No totals yet"
+			       Status="@_totalsStatus"
+			       RefreshRequested="RefreshAsync" />
+	</div>
+</div>
+
+@if (_cityControllers.Count > 0)
+{
+	<div class="mt-5">
+		<div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between mb-3 gap-2">
+			<h4 class="mb-0">City simulators</h4>
+			<div class="d-flex flex-wrap gap-2">
+				<button class="btn btn-primary" @onclick="StartAllCitiesAsync">Start all (@_allCitiesRate.ToString("N0")/min)</button>
+				<button class="btn btn-outline-secondary" @onclick="StopAllCitiesAsync">Stop all</button>
+			</div>
+		</div>
+		<div class="card mb-3">
+			<div class="card-body">
+				<label class="form-label">Bulk rate for all cities</label>
+				<div class="d-flex flex-column flex-lg-row align-items-lg-center gap-3">
+					<input type="range"
+					       class="form-range"
+					       min="0"
+					       max="@CityAutoVoteController.MaxVotesPerMinute"
+					       step="100"
+					       @bind="_allCitiesRate"
+					       @bind:event="oninput" />
+					<div class="d-flex flex-column flex-md-row align-items-md-center gap-2">
+						<span class="fw-semibold">@_allCitiesRate.ToString("N0") votes / minute</span>
+						<button class="btn btn-outline-primary" @onclick="SetAllCityRateAsync">Apply rate</button>
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
+			@foreach (var controller in _cityControllers)
+			{
+				<div class="col">
+					<CityAutoVote Controller="@controller" />
+				</div>
+			}
+		</div>
+	</div>
+}
+
+@code {
+	private readonly VoteForm _form = new();
+	private bool _busy;
+	private string _status = string.Empty;
+	private string _totalsStatus = string.Empty;
+    private IReadOnlyList<CityAutoVoteController> _cityControllers = Array.Empty<CityAutoVoteController>();
+    private int _allCitiesRate = 1_000;
+
+	protected override async Task OnInitializedAsync()
+	{
+		_cityControllers = AutoVoteManager.Controllers;
+		await RefreshAsync();
+	}
+
+	private async Task SubmitAsync()
+	{
+		if (_busy)
+		{
+			return;
+		}
+
+		_busy = true;
+
+		try
+		{
+			// Fire vote into Kafka-backed API.
+			var client = CreateClient();
+			var payload = new VoteRequest
+			{
+				UserId = _form.UserId,
+				Option = _form.Option,
+				TargetTopics = new List<string>()
+			};
+			var response = await client.PostAsJsonAsync("api/vote", payload);
+			_status = response.IsSuccessStatusCode ? "Vote queued ✅" : $"Error: {response.StatusCode}";
+			await RefreshAsync();
+		}
+		catch (Exception ex)
+		{
+			_status = $"Error: {ex.Message}";
+		}
+		finally
+		{
+			_busy = false;
+		}
+	}
+
+	private async Task RefreshAsync()
+	{
+		try
+		{
+			var client = CreateClient();
+			var totals = await client.GetFromJsonAsync<Dictionary<string, int>>("api/totals")
+					 ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+			TotalsStore.UpdateTotals(totals);
+			_totalsStatus = string.Empty;
+		}
+		catch (Exception ex)
+		{
+			_totalsStatus = $"Error loading totals: {ex.Message}";
+		}
+
+		StateHasChanged();
+	}
+
+	private HttpClient CreateClient()
+	{
+		var client = ClientFactory.CreateClient();
+		client.BaseAddress ??= new Uri(Navigation.BaseUri);
+		return client;
+	}
+
+	private async Task StartAllCitiesAsync()
+	{
+		if (_cityControllers.Count == 0)
+		{
+			return;
+		}
+
+		var rate = Math.Clamp(_allCitiesRate, 0, CityAutoVoteController.MaxVotesPerMinute);
+		var client = CreateClient();
+		var response = await client.PostAsJsonAsync("api/cities/start", new CityControlRequest
+		{
+			Rate = rate
+		});
+		_status = response.IsSuccessStatusCode
+			? $"Started {_cityControllers.Count} city simulators at {rate:N0} votes / minute"
+			: $"Error starting cities: {response.StatusCode}";
+		StateHasChanged();
+	}
+
+	private async Task StopAllCitiesAsync()
+	{
+		if (_cityControllers.Count == 0)
+		{
+			return;
+		}
+
+		var client = CreateClient();
+		var response = await client.PostAsJsonAsync("api/cities/stop", new CityControlRequest());
+		_status = response.IsSuccessStatusCode
+			? "Stopped all city simulators"
+			: $"Error stopping cities: {response.StatusCode}";
+		StateHasChanged();
+	}
+
+	private async Task SetAllCityRateAsync()
+	{
+		var rate = Math.Clamp(_allCitiesRate, 0, CityAutoVoteController.MaxVotesPerMinute);
+		var client = CreateClient();
+		var response = await client.PostAsJsonAsync("api/cities/rate", new CityControlRequest
+		{
+			Rate = rate
+		});
+		_status = response.IsSuccessStatusCode
+			? $"Set {_cityControllers.Count} city simulators to {rate:N0} votes / minute"
+			: $"Error updating rate: {response.StatusCode}";
+		StateHasChanged();
+	}
+
+	private sealed class VoteForm
+	{
+		[Required]
+		public string UserId { get; set; } = string.Empty;
+
+		[Required]
+		[RegularExpression("^[ABC]$", ErrorMessage = "Select A, B, or C")]
+		public string Option { get; set; } = "A";
+	}
+}

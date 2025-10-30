@@ -1,0 +1,105 @@
+@inject HttpClient Http
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">Failed to load the 10 year trend: @_error</div>
+}
+else if (_points is null)
+{
+    <div class="alert alert-info">Loading 10 year trend...</div>
+}
+else
+{
+    <div class="card mb-4">
+        <div class="card-header">
+            <h2 class="h5 m-0">10 Year Rating Trend</h2>
+        </div>
+        <div class="card-body">
+            @if (_points.Count > 1)
+            {
+                <svg viewBox="0 0 100 40" preserveAspectRatio="none" class="w-100 mb-3" role="img" aria-label="Average rating timeline">
+                    <polyline points="@_polylinePoints" fill="none" stroke="var(--bs-primary)" stroke-width="2"></polyline>
+                    @foreach (var (point, index) in _points.Select((p, i) => (p, i)))
+                    {
+                        <circle cx="@_polylineCoordinates[index].x" cy="@_polylineCoordinates[index].y" r="1.2" fill="var(--bs-primary)"></circle>
+                    }
+                </svg>
+            }
+            <div class="table-responsive mb-0">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th scope="col">Year</th>
+                            <th scope="col" class="text-end">Average Rating</th>
+                            <th scope="col" class="text-end">Ratings</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var point in _points)
+                        {
+                            <tr>
+                                <th scope="row">@point.year</th>
+                                <td class="text-end">@point.avg_rating.ToString("0.00")</td>
+                                <td class="text-end">@point.n_ratings.ToString("#,##0")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<RatingPoint>? _points;
+    private string? _error;
+    private string _polylinePoints = string.Empty;
+    private List<(double x, double y)> _polylineCoordinates = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var items = await Http.GetFromJsonAsync<List<RatingPoint>>("ZentropaData/target_movie_ratings_10y.json");
+            if (items is null || items.Count == 0)
+            {
+                return;
+            }
+
+            _points = items.OrderBy(p => p.year).ToList();
+            BuildPolyline();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void BuildPolyline()
+    {
+        if (_points is null || _points.Count == 0)
+        {
+            return;
+        }
+
+        var minYear = (double)_points.Min(p => p.year);
+        var maxYear = (double)_points.Max(p => p.year);
+        var minRating = _points.Min(p => p.avg_rating);
+        var maxRating = _points.Max(p => p.avg_rating);
+        var yearRange = Math.Max(1d, maxYear - minYear);
+        var ratingRange = Math.Max(0.1d, maxRating - minRating);
+
+        _polylineCoordinates = _points
+            .Select(p =>
+            {
+                var x = ((p.year - minYear) / yearRange) * 100d;
+                var y = 5d + (1d - ((p.avg_rating - minRating) / ratingRange)) * 30d;
+                return (x, y);
+            })
+            .ToList();
+
+        _polylinePoints = string.Join(' ', _polylineCoordinates.Select(c => $"{c.x:0.##},{c.y:0.##}"));
+    }
+
+    private sealed record RatingPoint(int year, double avg_rating, int n_ratings);
+}

@@ -1,0 +1,40 @@
+@inject HttpClient Http
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">Failed to load unique movie count: @_error</div>
+}
+else if (_uniqueMovies is null)
+{
+    <div class="alert alert-info">Loading unique movie count...</div>
+}
+else
+{
+    <div class="card text-bg-dark mb-4">
+        <div class="card-body text-center">
+            <h2 class="card-title">Unique Movies</h2>
+            <p class="display-4">@_uniqueMovies</p>
+            <p class="text-uppercase text-secondary">Total titles in catalogue</p>
+        </div>
+    </div>
+}
+
+@code {
+    private int? _uniqueMovies;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var payload = await Http.GetFromJsonAsync<UniqueMoviesPayload>("ZentropaData/unique_movies.json");
+            _uniqueMovies = payload?.unique_movies;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private sealed record UniqueMoviesPayload(int unique_movies);
+}

@@ -1,0 +1,52 @@
+[
+  {
+    "year": 1996,
+    "avg_rating": 4.119751348815388,
+    "n_ratings": 8526
+  },
+  {
+    "year": 1997,
+    "avg_rating": 3.8689299527288354,
+    "n_ratings": 9308
+  },
+  {
+    "year": 1998,
+    "avg_rating": 3.8682027649769584,
+    "n_ratings": 1085
+  },
+  {
+    "year": 1999,
+    "avg_rating": 3.9717376133984645,
+    "n_ratings": 2866
+  },
+  {
+    "year": 2000,
+    "avg_rating": 4.14150714804943,
+    "n_ratings": 4127
+  },
+  {
+    "year": 2001,
+    "avg_rating": 4.117330016583748,
+    "n_ratings": 2412
+  },
+  {
+    "year": 2002,
+    "avg_rating": 4.03926282051282,
+    "n_ratings": 1248
+  },
+  {
+    "year": 2003,
+    "avg_rating": 4.004282655246253,
+    "n_ratings": 1401
+  },
+  {
+    "year": 2004,
+    "avg_rating": 3.863064236111111,
+    "n_ratings": 2304
+  },
+  {
+    "year": 2005,
+    "avg_rating": 3.755810950413223,
+    "n_ratings": 3872
+  }
+]
