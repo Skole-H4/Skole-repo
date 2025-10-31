@@ -80,7 +80,8 @@ public sealed class KafkaTopicSeeder : IHostedService
             {
                 Name = topic,
                 NumPartitions = _options.DefaultPartitions,
-                ReplicationFactor = _options.DefaultReplicationFactor
+                ReplicationFactor = _options.DefaultReplicationFactor,
+                Configs = BuildTopicConfigs(topic)
             })
             .ToList();
 
@@ -132,5 +133,21 @@ public sealed class KafkaTopicSeeder : IHostedService
 
             throw;
         }
+    }
+
+    private Dictionary<string, string>? BuildTopicConfigs(string topic)
+    {
+        if (string.Equals(topic, _options.TotalsTopic, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(topic, _options.VotesByCityTopic, StringComparison.OrdinalIgnoreCase))
+        {
+            return new Dictionary<string, string>
+            {
+                ["cleanup.policy"] = "compact",
+                ["segment.ms"] = "600000",
+                ["min.cleanable.dirty.ratio"] = "0.01"
+            };
+        }
+
+        return null;
     }
 }

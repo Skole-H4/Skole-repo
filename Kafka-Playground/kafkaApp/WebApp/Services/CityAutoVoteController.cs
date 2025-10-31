@@ -129,10 +129,17 @@ public sealed class CityAutoVoteController : IAsyncDisposable
                     continue;
                 }
 
+                var option = _options[Random.Shared.Next(_options.Length)]?.Trim().ToUpperInvariant() ?? string.Empty;
+                if (option.Length == 0)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(50), token);
+                    continue;
+                }
+
                 var vote = new VoteEvent
                 {
                     UserId = $"auto-{Topic.ZipCode}-{Random.Shared.Next(1, 1_000_000):D6}",
-                    Option = _options[Random.Shared.Next(_options.Length)],
+                    Option = option,
                     Timestamp = DateTimeOffset.UtcNow
                 };
 
@@ -140,7 +147,7 @@ public sealed class CityAutoVoteController : IAsyncDisposable
                 {
                     await _producer.ProduceAsync(Topic.TopicName, new Message<string, VoteEvent>
                     {
-                        Key = vote.UserId,
+                        Key = vote.Option,
                         Value = vote
                     }).ConfigureAwait(false);
                     Volatile.Write(ref _lastError, null);

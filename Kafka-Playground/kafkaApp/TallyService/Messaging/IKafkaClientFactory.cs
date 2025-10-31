@@ -8,4 +8,6 @@ public interface IKafkaClientFactory
     IConsumer<string, VoteEvent> CreateVoteConsumer();
 
     IProducer<string, VoteTotal> CreateTallyProducer();
+
+    IConsumer<string, VoteTotal> CreateTotalsConsumer(string groupId);
 }

@@ -112,7 +112,7 @@ app.MapPost("/api/vote", async (VoteRequest request, CityCatalog catalog, PartyC
     {
         var delivery = await producer.ProduceAsync(topic, new Message<string, VoteEvent>
         {
-            Key = vote.UserId,
+            Key = vote.Option,
             Value = vote
         });
 

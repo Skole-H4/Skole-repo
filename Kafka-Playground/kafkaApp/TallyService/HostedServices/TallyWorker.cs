@@ -2,6 +2,7 @@ namespace TallyService.HostedServices;
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,6 +24,7 @@ public sealed class TallyWorker : BackgroundService
     private readonly ILogger<TallyWorker> _logger;
     private readonly Dictionary<string, int> _globalCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Dictionary<string, int>> _cityCounts = new(StringComparer.OrdinalIgnoreCase);
+    private long _processedEvents;
 
     public TallyWorker(
         KafkaOptions options,
@@ -66,12 +68,14 @@ public sealed class TallyWorker : BackgroundService
         }
     }
 
-    private Task RunTallyLoopAsync(CancellationToken stoppingToken)
+    private async Task RunTallyLoopAsync(CancellationToken stoppingToken)
     {
         using var consumer = _clientFactory.CreateVoteConsumer();
         using var producer = _clientFactory.CreateTallyProducer();
 
         producer.InitTransactions(TransactionTimeout);
+
+        await RestoreStateAsync(stoppingToken).ConfigureAwait(false);
 
         var topics = BuildSubscriptions();
         consumer.Subscribe(topics);
@@ -136,8 +140,74 @@ public sealed class TallyWorker : BackgroundService
                 _logger.LogDebug(ex, "Error closing tally consumer");
             }
         }
+    }
 
-        return Task.CompletedTask;
+    private async Task RestoreStateAsync(CancellationToken stoppingToken)
+    {
+        _globalCounts.Clear();
+        _cityCounts.Clear();
+    Interlocked.Exchange(ref _processedEvents, 0);
+
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation("Restoring tally state from compacted output topics...");
+        }
+
+        using var consumer = _clientFactory.CreateTotalsConsumer($"{_options.TallyGroupId}-rehydrate-{Guid.NewGuid():N}");
+        consumer.Subscribe(new[] { _options.TotalsTopic, _options.VotesByCityTopic });
+
+        var remaining = new HashSet<TopicPartition>();
+        var stopwatch = Stopwatch.StartNew();
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            foreach (var partition in consumer.Assignment)
+            {
+                remaining.Add(partition);
+            }
+
+            var result = consumer.Consume(TimeSpan.FromMilliseconds(200));
+            if (result is null)
+            {
+                if (remaining.Count == 0)
+                {
+                    if (stopwatch.Elapsed > TimeSpan.FromSeconds(5))
+                    {
+                        break;
+                    }
+
+                    break;
+                }
+
+                continue;
+            }
+
+            if (result.IsPartitionEOF)
+            {
+                remaining.Remove(result.TopicPartition);
+                if (remaining.Count == 0)
+                {
+                    break;
+                }
+
+                continue;
+            }
+
+            ApplyRestoredRecord(result);
+        }
+
+        consumer.Close();
+        stopwatch.Stop();
+
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            var cityTotals = _cityCounts.Sum(bucket => bucket.Value.Count);
+            _logger.LogInformation(
+                "State restored: {GlobalOptions} global options and {CityOptions} city-option pairs in {Elapsed}.",
+                _globalCounts.Count,
+                cityTotals,
+                stopwatch.Elapsed);
+        }
     }
 
     private void ProcessRecord(
@@ -190,10 +260,12 @@ public sealed class TallyWorker : BackgroundService
         SendOffsets(producer, consumer, offsets);
         CommitTransaction(producer);
 
-        if (_logger.IsEnabled(LogLevel.Debug))
+        var processed = Interlocked.Increment(ref _processedEvents);
+        if (_logger.IsEnabled(LogLevel.Debug) && processed % 500 == 0)
         {
             _logger.LogDebug(
-                "Processed vote for {Option} at {TopicPartitionOffset}; global count={GlobalCount}",
+                "Processed {Processed} votes; last option={Option}, partition={TopicPartitionOffset}, global count={GlobalCount}",
+                processed,
                 option,
                 record.TopicPartitionOffset,
                 globalTotal.Count);
@@ -248,9 +320,68 @@ public sealed class TallyWorker : BackgroundService
             return false;
         }
 
-        option = vote.Option.Trim().ToUpperInvariant();
+        option = NormalizeOption(vote.Option);
         return option.Length > 0;
     }
+
+    private void ApplyRestoredRecord(ConsumeResult<string, VoteTotal> record)
+    {
+        var message = record.Message;
+        if (message?.Value is not { } total || string.IsNullOrWhiteSpace(total.Option))
+        {
+            return;
+        }
+
+        var option = NormalizeOption(total.Option);
+        if (option.Length == 0)
+        {
+            return;
+        }
+
+        if (string.Equals(record.Topic, _options.TotalsTopic, StringComparison.OrdinalIgnoreCase))
+        {
+            _globalCounts[option] = total.Count;
+            return;
+        }
+
+        if (!string.Equals(record.Topic, _options.VotesByCityTopic, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var cityKey = ExtractCityBucketKey(record, total);
+        if (string.IsNullOrEmpty(cityKey))
+        {
+            return;
+        }
+
+        var bucket = GetCityBucket(cityKey);
+        bucket[option] = total.Count;
+    }
+
+    private string? ExtractCityBucketKey(ConsumeResult<string, VoteTotal> record, VoteTotal total)
+    {
+        var messageKey = record.Message?.Key;
+        if (!string.IsNullOrWhiteSpace(messageKey))
+        {
+            var separator = messageKey.IndexOf(':');
+            return separator > 0 ? messageKey[..separator] : messageKey;
+        }
+
+        if (!string.IsNullOrWhiteSpace(total.City) && _cityCatalog.TryResolve(total.City, out var resolvedCity) && resolvedCity is not null)
+        {
+            return resolvedCity.TopicName;
+        }
+
+        if (_cityCatalog.TryGetByTopic(record.Topic, out var topicCity) && topicCity is not null)
+        {
+            return topicCity.TopicName;
+        }
+
+        return null;
+    }
+
+    private static string NormalizeOption(string option) => option.Trim().ToUpperInvariant();
 
     private VoteTotal CreateGlobalTotal(string option, DateTimeOffset timestamp)
     {

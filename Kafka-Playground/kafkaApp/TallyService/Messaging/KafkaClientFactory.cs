@@ -64,4 +64,29 @@ public sealed class KafkaClientFactory : IKafkaClientFactory
             .SetValueSerializer(new JsonSerializer<VoteTotal>(_schemaRegistryClient, serializerConfig).AsSyncOverAsync())
             .Build();
     }
+
+    public IConsumer<string, VoteTotal> CreateTotalsConsumer(string groupId)
+    {
+        if (string.IsNullOrWhiteSpace(groupId))
+        {
+            throw new ArgumentException("Group identifier is required", nameof(groupId));
+        }
+
+        var consumerConfig = new ConsumerConfig
+        {
+            BootstrapServers = _options.BootstrapServers,
+            GroupId = groupId,
+            AutoOffsetReset = AutoOffsetReset.Earliest,
+            EnableAutoCommit = false,
+            EnablePartitionEof = true,
+            IsolationLevel = IsolationLevel.ReadCommitted
+        };
+
+        consumerConfig.Set("socket.keepalive.enable", "true");
+        consumerConfig.Set("broker.address.family", "v4");
+
+        return new ConsumerBuilder<string, VoteTotal>(consumerConfig)
+            .SetValueDeserializer(new JsonDeserializer<VoteTotal>(_schemaRegistryClient).AsSyncOverAsync())
+            .Build();
+    }
 }
