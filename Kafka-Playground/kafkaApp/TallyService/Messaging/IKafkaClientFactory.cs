@@ -5,7 +5,7 @@ using TallyService.Models;
 
 public interface IKafkaClientFactory
 {
-    IConsumer<string, VoteEvent> CreateVoteConsumer();
+    IConsumer<string, VoteEnvelope> CreateVoteConsumer();
 
     IProducer<string, VoteTotal> CreateTallyProducer();
 

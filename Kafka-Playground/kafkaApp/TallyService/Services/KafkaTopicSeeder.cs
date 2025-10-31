@@ -9,19 +9,16 @@ using Confluent.Kafka;
 using Confluent.Kafka.Admin;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using TallyService.Abstractions;
 using TallyService.Configuration;
 
 public sealed class KafkaTopicSeeder : IHostedService
 {
     private readonly KafkaOptions _options;
-    private readonly ICityCatalog _cityCatalog;
     private readonly ILogger<KafkaTopicSeeder> _logger;
 
-    public KafkaTopicSeeder(KafkaOptions options, ICityCatalog cityCatalog, ILogger<KafkaTopicSeeder> logger)
+    public KafkaTopicSeeder(KafkaOptions options, ILogger<KafkaTopicSeeder> logger)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        _cityCatalog = cityCatalog ?? throw new ArgumentNullException(nameof(cityCatalog));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -55,11 +52,6 @@ public sealed class KafkaTopicSeeder : IHostedService
             _options.TotalsTopic,
             _options.VotesByCityTopic
         };
-
-        foreach (var city in _cityCatalog.Cities)
-        {
-            expectedTopics.Add(city.TopicName);
-        }
 
         if (expectedTopics.Count == 0)
         {

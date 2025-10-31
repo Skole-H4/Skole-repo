@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Confluent.Kafka;
+using WebApp.Configuration;
 using WebApp.Models;
 
 namespace WebApp.Services;
@@ -10,20 +11,26 @@ namespace WebApp.Services;
 public sealed class CityAutoVoteManager : IAsyncDisposable
 {
     private readonly CityCatalog _catalog;
+    private readonly string _votesTopic;
     private readonly List<CityAutoVoteController> _controllers;
     private readonly Dictionary<string, CityAutoVoteController> _byTopic;
 
-    public CityAutoVoteManager(IProducer<string, VoteEvent> producer, CityCatalog catalog, PartyCatalog partyCatalog)
+    public CityAutoVoteManager(IProducer<string, VoteEnvelope> producer, CityCatalog catalog, PartyCatalog partyCatalog, KafkaOptions kafkaOptions)
     {
         _catalog = catalog;
-        var options = partyCatalog.PartyLetters;
-        if (options.Count == 0)
+        var partyOptions = partyCatalog.PartyLetters;
+        if (partyOptions.Count == 0)
         {
             throw new InvalidOperationException("No party options available for auto vote manager");
         }
+        if (string.IsNullOrWhiteSpace(kafkaOptions?.VotesTopic))
+        {
+            throw new InvalidOperationException("Votes topic configuration is required for auto vote manager");
+        }
+        _votesTopic = kafkaOptions.VotesTopic;
         _controllers = catalog.Cities
             .OrderBy(city => city.ZipCode)
-            .Select(city => new CityAutoVoteController(city, producer, options))
+            .Select(city => new CityAutoVoteController(city, producer, partyOptions, _votesTopic))
             .ToList();
         _byTopic = _controllers.ToDictionary(c => c.Topic.TopicName, StringComparer.OrdinalIgnoreCase);
     }

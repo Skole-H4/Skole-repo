@@ -6,7 +6,6 @@ using Microsoft.Extensions.Options;
 using TallyService.Abstractions;
 using TallyService.Configuration;
 using TallyService.HostedServices;
-using TallyService.Messaging;
 using TallyService.Services;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -28,10 +27,9 @@ builder.Services.AddSingleton<ISchemaRegistryClient>(sp =>
 });
 
 builder.Services.AddSingleton<ICityCatalog, CityCatalog>();
-builder.Services.AddSingleton<IKafkaClientFactory, KafkaClientFactory>();
 
 builder.Services.AddHostedService<KafkaTopicSeeder>();
-builder.Services.AddHostedService<TallyWorker>();
+builder.Services.AddHostedService<StreamTallyHostedService>();
 
 var host = builder.Build();
 await host.RunAsync();

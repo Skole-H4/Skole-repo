@@ -34,7 +34,7 @@ builder.Services.AddSingleton<ISchemaRegistryClient>(sp =>
     });
 });
 
-builder.Services.AddSingleton<IProducer<string, VoteEvent>>(sp =>
+builder.Services.AddSingleton<IProducer<string, VoteEnvelope>>(sp =>
 {
     var options = sp.GetRequiredService<KafkaOptions>();
     var producerConfig = new ProducerConfig
@@ -48,8 +48,8 @@ builder.Services.AddSingleton<IProducer<string, VoteEvent>>(sp =>
 
     var schemaClient = sp.GetRequiredService<ISchemaRegistryClient>();
 
-    return new ProducerBuilder<string, VoteEvent>(producerConfig)
-        .SetValueSerializer(new JsonSerializer<VoteEvent>(schemaClient, new JsonSerializerConfig
+    return new ProducerBuilder<string, VoteEnvelope>(producerConfig)
+        .SetValueSerializer(new JsonSerializer<VoteEnvelope>(schemaClient, new JsonSerializerConfig
         {
             AutoRegisterSchemas = true
         }))
@@ -81,7 +81,7 @@ app.UseAntiforgery();
 app.MapGet("/api/totals", (VoteTotalsStore store) => Results.Json(store.GetSnapshot()));
 app.MapGet("/api/cities", (CityVoteStore store) => Results.Json(store.GetSnapshot()));
 
-app.MapPost("/api/vote", async (VoteRequest request, CityCatalog catalog, PartyCatalog partyCatalog, IProducer<string, VoteEvent> producer, KafkaOptions kafkaOptions) =>
+app.MapPost("/api/vote", async (VoteRequest request, CityCatalog catalog, PartyCatalog partyCatalog, IProducer<string, VoteEnvelope> producer, KafkaOptions kafkaOptions) =>
 {
     if (string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.Option))
     {
@@ -101,27 +101,47 @@ app.MapPost("/api/vote", async (VoteRequest request, CityCatalog catalog, PartyC
         Timestamp = DateTimeOffset.UtcNow
     };
 
-    var targets = ResolveTargets(request.TargetTopics, catalog, kafkaOptions);
+    var targets = ResolveTargets(request.TargetTopics, catalog);
+    var results = new List<object>(targets.Count == 0 ? 1 : targets.Count);
+
     if (targets.Count == 0)
     {
-        targets.Add(kafkaOptions.VotesTopic);
-    }
-
-    var results = new List<object>(targets.Count);
-    foreach (var topic in targets)
-    {
-        var delivery = await producer.ProduceAsync(topic, new Message<string, VoteEvent>
+        var envelope = CreateEnvelope(vote, null);
+        var delivery = await producer.ProduceAsync(kafkaOptions.VotesTopic, new Message<string, VoteEnvelope>
         {
-            Key = vote.Option,
-            Value = vote
+            Key = BuildMessageKey(null, option),
+            Value = envelope
         });
 
         results.Add(new
         {
-            topic,
+            topic = kafkaOptions.VotesTopic,
             partition = delivery.Partition.Value,
-            offset = delivery.Offset.Value
+            offset = delivery.Offset.Value,
+            city = envelope.City,
+            zip = envelope.ZipCode
         });
+    }
+    else
+    {
+        foreach (var city in targets)
+        {
+            var envelope = CreateEnvelope(vote, city);
+            var delivery = await producer.ProduceAsync(kafkaOptions.VotesTopic, new Message<string, VoteEnvelope>
+            {
+                Key = BuildMessageKey(city.ZipCode, option),
+                Value = envelope
+            });
+
+            results.Add(new
+            {
+                topic = kafkaOptions.VotesTopic,
+                partition = delivery.Partition.Value,
+                offset = delivery.Offset.Value,
+                city = envelope.City,
+                zip = envelope.ZipCode
+            });
+        }
     }
 
     return Results.Ok(new
@@ -188,9 +208,9 @@ app.MapRazorComponents<App>()
 
 app.Run();
 
-static List<string> ResolveTargets(IEnumerable<string>? requested, CityCatalog catalog, KafkaOptions options)
+static List<CityTopic> ResolveTargets(IEnumerable<string>? requested, CityCatalog catalog)
 {
-    var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var results = new HashSet<CityTopic>(CityTopicComparer.Instance);
 
     if (requested is not null)
     {
@@ -202,20 +222,55 @@ static List<string> ResolveTargets(IEnumerable<string>? requested, CityCatalog c
                 continue;
             }
 
-            if (string.Equals(value, options.VotesTopic, StringComparison.OrdinalIgnoreCase))
-            {
-                results.Add(options.VotesTopic);
-                continue;
-            }
-
             if (catalog.TryResolve(value, out var city) && city is not null)
             {
-                results.Add(city.TopicName);
+                results.Add(city);
             }
         }
     }
 
     return results.ToList();
+}
+
+static string BuildMessageKey(int? zipCode, string option)
+{
+    return zipCode.HasValue
+        ? string.Concat(zipCode.Value, '|', option)
+        : string.Concat("GLOBAL|", option);
+}
+
+static VoteEnvelope CreateEnvelope(VoteEvent vote, CityTopic? city)
+{
+    return new VoteEnvelope
+    {
+        Event = vote,
+        CityTopic = city?.TopicName,
+        City = city?.City,
+        ZipCode = city?.ZipCode
+    };
+}
+
+sealed class CityTopicComparer : IEqualityComparer<CityTopic>
+{
+    public static CityTopicComparer Instance { get; } = new();
+
+    public bool Equals(CityTopic? x, CityTopic? y)
+    {
+        if (ReferenceEquals(x, y))
+        {
+            return true;
+        }
+
+        if (x is null || y is null)
+        {
+            return false;
+        }
+
+        return string.Equals(x.TopicName, y.TopicName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public int GetHashCode(CityTopic obj)
+        => StringComparer.OrdinalIgnoreCase.GetHashCode(obj.TopicName);
 }
 
 sealed class TotalsConsumer : BackgroundService

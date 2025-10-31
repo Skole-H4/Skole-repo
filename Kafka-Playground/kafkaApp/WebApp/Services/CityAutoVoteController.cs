@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,8 +14,9 @@ public sealed class CityAutoVoteController : IAsyncDisposable
 {
     public const int MaxVotesPerMinute = 20_000;
 
-    private readonly IProducer<string, VoteEvent> _producer;
+    private readonly IProducer<string, VoteEnvelope> _producer;
     private readonly string[] _options;
+    private readonly string _votesTopic;
     private readonly object _gate = new();
 
     private CancellationTokenSource? _cts;
@@ -25,7 +27,7 @@ public sealed class CityAutoVoteController : IAsyncDisposable
     private string? _lastError;
     private int _isRunning;
 
-    public CityAutoVoteController(CityTopic topic, IProducer<string, VoteEvent> producer, IReadOnlyList<string> options)
+    public CityAutoVoteController(CityTopic topic, IProducer<string, VoteEnvelope> producer, IReadOnlyList<string> options, string votesTopic)
     {
         if (options is null || options.Count == 0)
         {
@@ -35,6 +37,7 @@ public sealed class CityAutoVoteController : IAsyncDisposable
         Topic = topic;
         _producer = producer;
         _options = options.ToArray();
+        _votesTopic = votesTopic ?? throw new ArgumentNullException(nameof(votesTopic));
     }
 
     public CityTopic Topic { get; }
@@ -145,10 +148,18 @@ public sealed class CityAutoVoteController : IAsyncDisposable
 
                 try
                 {
-                    await _producer.ProduceAsync(Topic.TopicName, new Message<string, VoteEvent>
+                    var envelope = new VoteEnvelope
                     {
-                        Key = vote.Option,
-                        Value = vote
+                        Event = vote,
+                        CityTopic = Topic.TopicName,
+                        City = Topic.City,
+                        ZipCode = Topic.ZipCode
+                    };
+
+                    await _producer.ProduceAsync(_votesTopic, new Message<string, VoteEnvelope>
+                    {
+                        Key = BuildMessageKey(Topic.ZipCode, option),
+                        Value = envelope
                     }).ConfigureAwait(false);
                     Volatile.Write(ref _lastError, null);
                 }
@@ -186,6 +197,9 @@ public sealed class CityAutoVoteController : IAsyncDisposable
     }
 
     private void Notify() => StatusChanged?.Invoke(this);
+
+    private static string BuildMessageKey(int zipCode, string option)
+        => string.Concat(zipCode.ToString(CultureInfo.InvariantCulture), '|', option);
 
     public async ValueTask DisposeAsync()
     {

@@ -19,7 +19,7 @@ public sealed class KafkaClientFactory : IKafkaClientFactory
         _schemaRegistryClient = schemaRegistryClient ?? throw new ArgumentNullException(nameof(schemaRegistryClient));
     }
 
-    public IConsumer<string, VoteEvent> CreateVoteConsumer()
+    public IConsumer<string, VoteEnvelope> CreateVoteConsumer()
     {
         var consumerConfig = new ConsumerConfig
         {
@@ -34,8 +34,8 @@ public sealed class KafkaClientFactory : IKafkaClientFactory
         consumerConfig.Set("debug", "broker,protocol,security");
         consumerConfig.Set("broker.address.family", "v4");
 
-        return new ConsumerBuilder<string, VoteEvent>(consumerConfig)
-            .SetValueDeserializer(new JsonDeserializer<VoteEvent>(_schemaRegistryClient).AsSyncOverAsync())
+        return new ConsumerBuilder<string, VoteEnvelope>(consumerConfig)
+            .SetValueDeserializer(new JsonDeserializer<VoteEnvelope>(_schemaRegistryClient).AsSyncOverAsync())
             .Build();
     }
 

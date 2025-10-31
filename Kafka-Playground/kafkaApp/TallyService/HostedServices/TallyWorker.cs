@@ -3,6 +3,7 @@ namespace TallyService.HostedServices;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -87,7 +88,7 @@ public sealed class TallyWorker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            ConsumeResult<string, VoteEvent>? record;
+            ConsumeResult<string, VoteEnvelope>? record;
 
             try
             {
@@ -142,11 +143,11 @@ public sealed class TallyWorker : BackgroundService
         }
     }
 
-    private async Task RestoreStateAsync(CancellationToken stoppingToken)
+    private Task RestoreStateAsync(CancellationToken stoppingToken)
     {
         _globalCounts.Clear();
         _cityCounts.Clear();
-    Interlocked.Exchange(ref _processedEvents, 0);
+        Interlocked.Exchange(ref _processedEvents, 0);
 
         if (_logger.IsEnabled(LogLevel.Information))
         {
@@ -208,20 +209,22 @@ public sealed class TallyWorker : BackgroundService
                 cityTotals,
                 stopwatch.Elapsed);
         }
+
+        return Task.CompletedTask;
     }
 
     private void ProcessRecord(
-        ConsumeResult<string, VoteEvent> record,
+        ConsumeResult<string, VoteEnvelope> record,
         IProducer<string, VoteTotal> producer,
-        IConsumer<string, VoteEvent> consumer)
+        IConsumer<string, VoteEnvelope> consumer)
     {
         var offsets = new[]
         {
             new TopicPartitionOffset(record.TopicPartition, record.Offset + 1)
         };
 
-        var vote = record.Message?.Value;
-        if (!TryNormalizeOption(vote, out var option))
+        var envelope = record.Message?.Value;
+        if (!TryNormalizeOption(envelope, out var option))
         {
             BeginTransaction(producer);
             SendOffsets(producer, consumer, offsets);
@@ -235,7 +238,7 @@ public sealed class TallyWorker : BackgroundService
         VoteTotal? cityTotal = null;
         string? cityKey = null;
 
-        if (_cityCatalog.TryGetByTopic(record.Topic, out var city) && city is not null)
+        if (envelope is not null && TryResolveCity(record, envelope, out var city) && city is not null)
         {
             cityTotal = CreateCityTotal(city, option, timestamp);
             cityKey = string.Concat(city.TopicName, ':', option);
@@ -306,14 +309,15 @@ public sealed class TallyWorker : BackgroundService
 
     private void SendOffsets(
         IProducer<string, VoteTotal> producer,
-        IConsumer<string, VoteEvent> consumer,
+        IConsumer<string, VoteEnvelope> consumer,
         TopicPartitionOffset[] offsets)
     {
         producer.SendOffsetsToTransaction(offsets, consumer.ConsumerGroupMetadata, TransactionTimeout);
     }
 
-    private bool TryNormalizeOption(VoteEvent? vote, out string option)
+    private bool TryNormalizeOption(VoteEnvelope? envelope, out string option)
     {
+        var vote = envelope?.Event;
         if (vote is null || string.IsNullOrWhiteSpace(vote.Option))
         {
             option = string.Empty;
@@ -322,6 +326,54 @@ public sealed class TallyWorker : BackgroundService
 
         option = NormalizeOption(vote.Option);
         return option.Length > 0;
+    }
+
+    private bool TryResolveCity(
+        ConsumeResult<string, VoteEnvelope> record,
+        VoteEnvelope envelope,
+        out CityTopic? city)
+    {
+        if (!string.IsNullOrWhiteSpace(envelope.CityTopic) &&
+            _cityCatalog.TryGetByTopic(envelope.CityTopic, out city) &&
+            city is not null)
+        {
+            return true;
+        }
+
+        if (envelope.ZipCode.HasValue)
+        {
+            var zipValue = envelope.ZipCode.Value.ToString(CultureInfo.InvariantCulture);
+            if (_cityCatalog.TryResolve(zipValue, out city) && city is not null)
+            {
+                return true;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(envelope.City) &&
+            _cityCatalog.TryResolve(envelope.City, out city) &&
+            city is not null)
+        {
+            return true;
+        }
+
+        var key = record.Message?.Key;
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            var separator = key.IndexOf('|');
+            if (separator > 0)
+            {
+                var candidate = key[..separator];
+                if (!string.Equals(candidate, "GLOBAL", StringComparison.OrdinalIgnoreCase) &&
+                    _cityCatalog.TryResolve(candidate, out city) &&
+                    city is not null)
+                {
+                    return true;
+                }
+            }
+        }
+
+        city = null;
+        return false;
     }
 
     private void ApplyRestoredRecord(ConsumeResult<string, VoteTotal> record)
@@ -437,16 +489,6 @@ public sealed class TallyWorker : BackgroundService
 
     private string[] BuildSubscriptions()
     {
-        var topics = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            _options.VotesTopic
-        };
-
-        foreach (var city in _cityCatalog.Cities)
-        {
-            topics.Add(city.TopicName);
-        }
-
-        return topics.ToArray();
+        return new[] { _options.VotesTopic };
     }
 }
