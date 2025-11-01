@@ -18,7 +18,7 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
 
       # --- Single-node friendly defaults ---
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
@@ -31,7 +31,7 @@ services:
       # --- Memory ---
       KAFKA_HEAP_OPTS: "-Xms${KAFKA_HEAP:-768m} -Xmx${KAFKA_HEAP:-768m}"
     volumes:
-      - ./data/kafka:/var/lib/kafka/data
+      - kafka-data:/var/lib/kafka/data
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:${KAFKA_PORT_INTERNAL:-29092} --list >/dev/null 2>&1 || exit 1"]
       interval: 10s
@@ -103,21 +103,24 @@ services:
     networks:
       - kafka-net
 
-  topics-init:
-    image: ${KAFKA_IMAGE:-apache/kafka:4.0.1}
-    depends_on:
-      kafka:
-        condition: service_healthy
-    entrypoint: ["/bin/bash", "-lc"]
-    command: |
-      echo "Creating demo topics if absent..."
-      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:${KAFKA_PORT_INTERNAL:-29092} --create --if-not-exists --topic demo --partitions 3 --replication-factor 1 || true
-      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:${KAFKA_PORT_INTERNAL:-29092} --create --if-not-exists --topic deadletter --partitions 1 --replication-factor 1 || true
-      echo "Done."
-    restart: "no"
-    networks:
-      - kafka-net
+  #topics-init:
+  #  image: ${KAFKA_IMAGE:-apache/kafka:4.0.1}
+  #  depends_on:
+  #    kafka:
+  #      condition: service_healthy
+  #  entrypoint: ["/bin/bash", "-lc"]
+  #  command: |
+  #    echo "Creating demo topics if absent..."
+  #    /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:${KAFKA_PORT_INTERNAL:-29092} --create --if-not-exists --topic demo --partitions 3 --replication-factor 1 || true
+  #    /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:${KAFKA_PORT_INTERNAL:-29092} --create --if-not-exists --topic deadletter --partitions 1 --replication-factor 1 || true
+  #    echo "Done."
+  #  restart: "no"
+  #  networks:
+  #    - kafka-net
 
 networks:
   kafka-net:
     driver: bridge
+
+volumes:
+  kafka-data:

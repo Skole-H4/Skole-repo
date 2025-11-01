@@ -7,6 +7,7 @@ using TallyService.Abstractions;
 using TallyService.Configuration;
 using TallyService.HostedServices;
 using TallyService.Services;
+using TallyService.Messaging;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -27,9 +28,28 @@ builder.Services.AddSingleton<ISchemaRegistryClient>(sp =>
 });
 
 builder.Services.AddSingleton<ICityCatalog, CityCatalog>();
+builder.Services.AddSingleton<IKafkaClientFactory, KafkaClientFactory>();
 
 builder.Services.AddHostedService<KafkaTopicSeeder>();
-builder.Services.AddHostedService<StreamTallyHostedService>();
+// Feature flags to avoid duplicate tally producers.
+var enableStream = string.Equals(Environment.GetEnvironmentVariable("ENABLE_STREAM_TOPOLOGY"), "true", StringComparison.OrdinalIgnoreCase);
+var enableWorker = !enableStream || string.Equals(Environment.GetEnvironmentVariable("ENABLE_TALLY_WORKER"), "true", StringComparison.OrdinalIgnoreCase);
+var enableMini = string.Equals(Environment.GetEnvironmentVariable("ENABLE_MINI_STREAM"), "true", StringComparison.OrdinalIgnoreCase);
+
+if (enableStream)
+{
+    builder.Services.AddHostedService<StreamTallyHostedService>();
+}
+
+if (enableWorker)
+{
+    builder.Services.AddHostedService<TallyWorker>(); // Default path when stream topology disabled
+}
+
+if (enableMini)
+{
+    builder.Services.AddHostedService<MiniStreamHostedService>(); // Diagnostic only
+}
 
 var host = builder.Build();
 await host.RunAsync();
