@@ -1,37 +1,33 @@
+namespace TallyService.HostedServices;
+
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Confluent.Kafka;
-using Confluent.Kafka.Admin; // For parsing CreateTopicsException
+using Confluent.Kafka.Admin;
 using Confluent.SchemaRegistry;
 using Confluent.SchemaRegistry.Serdes;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Streamiz.Kafka.Net;
-using Streamiz.Kafka.Net.Errors;
-using Streamiz.Kafka.Net.State;
 using Streamiz.Kafka.Net.SerDes;
 using Streamiz.Kafka.Net.Stream;
 using Streamiz.Kafka.Net.Table;
+using Streamiz.Kafka.Net.Errors;
 using TallyService.Abstractions;
 using TallyService.Configuration;
 using TallyService.Models;
-using TallyService.Services;
+using TallyService.Streaming;
 
-namespace TallyService.HostedServices;
-
-/// <summary>
-/// Hosted service building and running the Kafka Streams topology that tallies votes globally
-/// and per city. Uses Streamiz (Kafka Streams for .NET). No destructive internal topic cleanup
-/// is performed; internal topics are managed by the library to preserve state.
-/// </summary>
 public sealed class StreamTallyHostedService : IHostedService
 {
     private static readonly JsonSerializerConfig SerializerConfig = new()
     {
-        AutoRegisterSchemas = true // Consider disabling in production after initial bootstrap
+        AutoRegisterSchemas = true
     };
 
     private readonly KafkaOptions _options;
@@ -41,18 +37,12 @@ public sealed class StreamTallyHostedService : IHostedService
 
     private KafkaStream? _stream;
     private Task? _streamTask;
-
-    private string BaseApplicationId => string.Concat(_options.TallyGroupId, "-stream");
-    private string? _runApplicationId;
-    private Timer? _healthTimer;
-    private bool UseEphemeralId => string.Equals(Environment.GetEnvironmentVariable("KAFKA_EPHEMERAL_ID"), "true", StringComparison.OrdinalIgnoreCase);
-    // Deserialization diagnostics counters (interlocked)
-    private long _deserErrorCount;
-    private long _deserLastLoggedSummaryCount;
-    private int _deserWarnLimit;
-    private int _deserSummaryInterval;
-    private int _deserPayloadPreviewLimit;
+    private Timer? _stallTimer;
+    private bool _performedAutoRecovery;
     private long _processedValidVotes;
+    private DateTime _startUtc;
+    private readonly TimeSpan _stallCheckInterval = TimeSpan.FromSeconds(45);
+    private readonly TimeSpan _initialGracePeriod = TimeSpan.FromSeconds(30);
 
     public StreamTallyHostedService(
         KafkaOptions options,
@@ -66,166 +56,321 @@ public sealed class StreamTallyHostedService : IHostedService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         if (_stream is not null)
         {
-            return Task.CompletedTask; // Already started
+            return;
         }
+
+        _startUtc = DateTime.UtcNow;
+
+        // Optional local state reset (development recovery) controlled by feature flag
+        TryForceLocalStateReset();
+
+        await CleanupStaleInternalTopicsAsync(cancellationToken).ConfigureAwait(false);
 
         var builder = new StreamBuilder();
 
-        // SerDes (JSON + schema registry). VoteTotal reused for both global and city outputs.
-    // Use built-in JsonSerDes for simplicity (Schema Registry optional for plain JSON). If schema registry integration is required,
-    // a custom SerDes implementing ISerDes<T> can wrap Confluent's JsonSerializer.
-    // Use tolerant SerDes to reduce deserialization exception spam and classify malformed payloads.
-    var voteSerDes = new TolerantVoteEnvelopeSerDes(_logger as ILogger<TolerantVoteEnvelopeSerDes> ?? new LoggerFactory().CreateLogger<TolerantVoteEnvelopeSerDes>());
-    var voteTotalSerDes = new JsonSerDes<VoteTotal>();
+        var voteSerDes = new ConfluentJsonSerDes<VoteEnvelope>(_schemaRegistryClient, SerializerConfig);
+        var voteTotalSerDes = new ConfluentJsonSerDes<VoteTotal>(_schemaRegistryClient, SerializerConfig);
 
-        // Source stream of envelopes, normalized.
-        var voteStream = BuildStream(builder, _options.VotesTopic, voteSerDes);
-        var validVotes = voteStream.Filter((_, vote, _) => vote.Option.Length > 0, "filter-empty-option");
+        var streams = new List<IKStream<string, NormalizedVote>>
+        {
+            BuildStream(builder, _options.VotesTopic, voteSerDes)
+        };
 
-        // Global totals by option.
-        var globalTotals = validVotes
-            .SelectKey<string>((_, vote, _) => vote.Option, "select-global-option")
+        var merged = MergeStreams(streams);
+        var validVotes = merged.Filter((_, vote, _) => vote.Option.Length > 0, "filter-empty-option");
+
+        var aggregationStream = validVotes
+            .FlatMap((_, vote, _) => BuildAggregationRecords(vote), "flatmap-aggregation-records");
+
+        var combinedCounts = aggregationStream
             .GroupByKey()
-            .Count("global-counts")
-            .ToStream()
-            .Map((key, count, _) => KeyValuePair.Create(key, CreateGlobalTotal(key, count)), "map-global-total");
-        globalTotals.To(_options.TotalsTopic, new StringSerDes(), voteTotalSerDes);
+            .Count("combined-tally-counts");
 
-        // Per-city totals; key pattern: {cityTopic}:{option}
-        var cityTotals = validVotes
-            .Filter((_, vote, _) => vote.CityTopic is not null, "filter-city-topic")
-            .SelectKey<string>((_, vote, _) => string.Concat(vote.CityTopic, ':', vote.Option), "select-city-option")
-            .GroupByKey()
-            .Count("city-counts")
+        var aggregationResults = combinedCounts
             .ToStream()
-            .Map((key, count, _) => KeyValuePair.Create(key, CreateCityTotal(key, count)), "map-city-total")
-            .Filter((_, total, _) => total is not null, "filter-null-city-total")
-            .MapValues<VoteTotal>((total, _) => total!, "unwrap-city-total");
-        cityTotals.To(_options.VotesByCityTopic, new StringSerDes(), voteTotalSerDes);
+            .Map((key, count, _) => KeyValuePair.Create(key, CreateAggregationResult(key, count)), "map-aggregation-result");
 
+        var branches = aggregationResults.Branch(
+            (_, result, _) => result.Type == AggregationOutputType.Global,
+            (_, result, _) => result.Type == AggregationOutputType.City);
+
+        branches[0]
+            .Filter((_, result, _) => result.Total is not null, "filter-null-global-total")
+            .Map((_, result, _) => KeyValuePair.Create(result.OutputKey, result.Total!), "map-global-output")
+            .To(_options.TotalsTopic, new StringSerDes(), voteTotalSerDes);
+
+        branches[1]
+            .Filter((_, result, _) => result.Total is not null, "filter-null-city-total")
+            .Map((_, result, _) => KeyValuePair.Create(result.OutputKey, result.Total!), "map-city-output")
+            .To(_options.VotesByCityTopic, new StringSerDes(), voteTotalSerDes);
+
+        var config = BuildStreamConfig();
         var topology = builder.Build();
 
-        // Decide application.id (stable unless EPHEMERAL override set)
-    var rawEphemeral = Environment.GetEnvironmentVariable("KAFKA_EPHEMERAL_ID");
-    _logger.LogDebug("Env KAFKA_EPHEMERAL_ID = '{RawEphemeral}'", rawEphemeral);
-    _runApplicationId = UseEphemeralId ? GenerateUniqueApplicationId() : BaseApplicationId;
-        if (UseEphemeralId)
+        var attempt = 0;
+        const int maxAttempts = 2;
+    var startupGuardDelay = TimeSpan.FromSeconds(5);
+
+        while (true)
         {
-            _logger.LogWarning("Using EPHEMERAL application.id = {AppId}; state & EOS semantics not retained.", _runApplicationId);
-        }
-        else
-        {
-            _logger.LogInformation("Using STABLE application.id = {AppId} (required for stateful recovery).", _runApplicationId);
-        }
-        LogExistingInternalTopics(_runApplicationId);
-        var effectiveReplicationFactor = ValidateReplicationFactor(_options.DefaultReplicationFactor);
-        var config = BuildStreamConfig(_runApplicationId, effectiveReplicationFactor);
-        _stream = new KafkaStream(topology, config);
-        // Replace default topic manager with lenient variant to tolerate existing internal topics.
-        try
-        {
-            var field = _stream.GetType().GetField("topicManager", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (field != null)
+            attempt++;
+
+            _stream = new KafkaStream(topology, config);
+            _streamTask = _stream.StartAsync(cancellationToken);
+
+            var startupGuard = Task.Delay(startupGuardDelay);
+            var completed = await Task.WhenAny(_streamTask, startupGuard).ConfigureAwait(false);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (completed == _streamTask)
             {
-                var lenientType = typeof(StreamTallyHostedService).Assembly.GetType("TallyService.Services.LenientTopicManager");
-                if (lenientType != null)
+                try
                 {
-                    ILoggerFactory? lf = null;
-                    var loggerFactoryField = _stream.GetType().GetField("logger", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    if (loggerFactoryField?.GetValue(_stream) is ILoggerFactory factory)
+                    await _streamTask.ConfigureAwait(false);
+                    return;
+                }
+                catch (Exception ex) when (TryExtractExistingInternalTopics(ex, out var duplicateTopics) && attempt < maxAttempts)
+                {
+                    if (_logger.IsEnabled(LogLevel.Warning))
                     {
-                        lf = factory;
+                        _logger.LogWarning(
+                            "Kafka reported existing Streamiz internal topic(s): {Topics}. Retrying startup after cleanup.",
+                            string.Join(", ", duplicateTopics));
                     }
-                    var topicLogger = lf?.CreateLogger("LenientTopicManager") ?? _logger;
-                    var lenient = Activator.CreateInstance(lenientType, config, topicLogger);
-                    if (lenient != null)
-                    {
-                        field.SetValue(_stream, lenient);
-                        _logger.LogDebug("LenientTopicManager injected successfully.");
-                    }
+
+                    await CleanupInternalTopicsAsync(duplicateTopics, cancellationToken).ConfigureAwait(false);
+
+                    _stream.Dispose();
+                    _stream = null;
+                    _streamTask = null;
+                    continue;
+                }
+                catch
+                {
+                    throw;
                 }
             }
+
+            ObserveStreamTask();
+            StartStallDetection();
+            break;
         }
-        catch (Exception injectEx)
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (_stream is null)
         {
-            _logger.LogDebug(injectEx, "Failed to inject LenientTopicManager");
+            return;
         }
-        // Attach state change observer for deeper diagnostics
+
         try
         {
-            var evt = _stream.GetType().GetEvent("OnStateChange");
-            if (evt != null)
+            _stream.Dispose();
+            if (_streamTask is not null)
             {
-                // Dynamic subscribe using reflection; handler logs transitions
-                EventHandler? handler = (s, e) =>
-                {
-                    try
-                    {
-                        var newStateProp = e?.GetType().GetProperty("NewState");
-                        var oldStateProp = e?.GetType().GetProperty("OldState");
-                        var newStateVal = newStateProp?.GetValue(e)?.ToString();
-                        var oldStateVal = oldStateProp?.GetValue(e)?.ToString();
-                        _logger.LogDebug("[StreamState] {Old} -> {New}", oldStateVal, newStateVal);
-                    }
-                    catch (Exception ex2)
-                    {
-                        _logger.LogDebug(ex2, "State change handler failure");
-                    }
-                };
-                evt.AddEventHandler(_stream, handler);
-                _logger.LogDebug("Attached stream state change diagnostics handler.");
+                await _streamTask.ConfigureAwait(false);
             }
-        }
-        catch (Exception obsEx)
-        {
-            _logger.LogDebug(obsEx, "Failed to attach state change observer");
-        }
-        if (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("StartAsync received a pre-cancelled token before starting KafkaStream.");
-        }
-        try
-        {
-            _streamTask = _stream.StartAsync(cancellationToken);
-            if (cancellationToken.IsCancellationRequested)
-            {
-                _logger.LogWarning("Cancellation was requested immediately after StartAsync invocation.");
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogInformation("Kafka stream startup cancelled.");
-            DisposeStream();
-            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Kafka stream failed to start.");
-            DisposeStream();
-            throw;
+            if (_logger.IsEnabled(LogLevel.Error))
+            {
+                _logger.LogError(ex, "Error while stopping tally stream");
+            }
         }
-        ObserveStreamTask();
-        StartHealthLogging();
-        _logger.LogInformation("Kafka stream start requested.");
-        return Task.CompletedTask;
+        finally
+        {
+            _stream = null;
+            _streamTask = null;
+            StopStallDetection();
+        }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    private IKStream<string, NormalizedVote> BuildStream(
+        StreamBuilder builder,
+        string topic,
+        ISerDes<VoteEnvelope> valueSerDes)
     {
-        DisposeStream();
-        StopHealthLogging();
-        return Task.CompletedTask;
+        return builder
+            .Stream<string, VoteEnvelope>(topic, new StringSerDes(), valueSerDes)
+            .MapValues<NormalizedVote>((value, _) => NormalizeVote(value));
     }
 
-    // Removed previous RUNNING state polling to avoid shutdown loops; Streamiz emits state transitions via log.
+    private static IKStream<string, NormalizedVote> MergeStreams(IReadOnlyList<IKStream<string, NormalizedVote>> streams)
+    {
+        if (streams.Count == 0)
+        {
+            throw new InvalidOperationException("At least one vote stream is required.");
+        }
 
-    // Deleted retry handler; using single-start with pre-cleanup strategy.
+        var merged = streams[0];
+        for (var i = 1; i < streams.Count; i++)
+        {
+            merged = merged.Merge(streams[i]);
+        }
 
-    // Removed deletion routine; rely on unique application id for dev stability.
+        return merged;
+    }
+
+    private StreamConfig BuildStreamConfig()
+    {
+        var stateDir = Path.Combine(AppContext.BaseDirectory, "stream-state");
+        Directory.CreateDirectory(stateDir);
+
+        var config = new StreamConfig
+        {
+            ApplicationId = ApplicationId,
+            BootstrapServers = _options.BootstrapServers,
+            AutoOffsetReset = AutoOffsetReset.Earliest,
+            StateDir = stateDir,
+            Guarantee = ProcessingGuarantee.EXACTLY_ONCE,
+            ReplicationFactor = _options.DefaultReplicationFactor,
+            CommitIntervalMs = StreamConfig.EOS_DEFAULT_COMMIT_INTERVAL_MS,
+            NumStreamThreads = 1,
+            DefaultKeySerDes = new StringSerDes(),
+            DefaultValueSerDes = new JsonSerDes<NormalizedVote>()
+        };
+
+        config.AllowAutoCreateTopics = false;
+
+        return config;
+    }
+
+    private async Task CleanupStaleInternalTopicsAsync(CancellationToken cancellationToken)
+    {
+        var prefix = string.Concat(ApplicationId, '-');
+
+        using var admin = new AdminClientBuilder(new AdminClientConfig
+        {
+            BootstrapServers = _options.BootstrapServers
+        }).Build();
+
+        var metadata = admin.GetMetadata(TimeSpan.FromSeconds(10));
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug(
+                "Streamiz cleanup scanning {TopicCount} topic(s) for prefix {Prefix}",
+                metadata.Topics.Count,
+                prefix);
+        }
+        var candidates = metadata.Topics
+            .Select(t => t.Topic)
+            .Where(name => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation(
+                "Deleting {Count} stale Streamiz internal topic(s) before startup: {Topics}",
+                candidates.Count,
+                string.Join(", ", candidates));
+        }
+
+        var pending = new HashSet<string>(candidates, StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var options = new DeleteTopicsOptions
+            {
+                OperationTimeout = TimeSpan.FromSeconds(60),
+                RequestTimeout = TimeSpan.FromSeconds(60)
+            };
+
+            await admin.DeleteTopicsAsync(pending, options).ConfigureAwait(false);
+        }
+        catch (DeleteTopicsException ex)
+        {
+            foreach (var result in ex.Results)
+            {
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    _logger.LogWarning(
+                        "DeleteTopics result for {Topic}: {Error} ({Reason})",
+                        result.Topic,
+                        result.Error.Code,
+                        result.Error.Reason);
+                }
+
+                if (result.Error.Code == ErrorCode.UnknownTopicOrPart)
+                {
+                    pending.Remove(result.Topic);
+                }
+            }
+        }
+
+        await WaitForTopicDeletionAsync(admin, pending, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task CleanupInternalTopicsAsync(IEnumerable<string> topics, CancellationToken cancellationToken)
+    {
+        var targets = topics
+            .Where(topic => topic.StartsWith(string.Concat(ApplicationId, '-'), StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        using var admin = new AdminClientBuilder(new AdminClientConfig
+        {
+            BootstrapServers = _options.BootstrapServers
+        }).Build();
+
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation(
+                "Cleaning up {Count} conflicting Streamiz internal topic(s): {Topics}",
+                targets.Count,
+                string.Join(", ", targets));
+        }
+
+        var pending = new HashSet<string>(targets, StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var options = new DeleteTopicsOptions
+            {
+                OperationTimeout = TimeSpan.FromSeconds(60),
+                RequestTimeout = TimeSpan.FromSeconds(60)
+            };
+
+            await admin.DeleteTopicsAsync(pending, options).ConfigureAwait(false);
+        }
+        catch (DeleteTopicsException ex)
+        {
+            foreach (var result in ex.Results)
+            {
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    _logger.LogWarning(
+                        "DeleteTopics result for {Topic}: {Error} ({Reason})",
+                        result.Topic,
+                        result.Error.Code,
+                        result.Error.Reason);
+                }
+
+                if (result.Error.Code == ErrorCode.UnknownTopicOrPart)
+                {
+                    pending.Remove(result.Topic);
+                }
+            }
+        }
+
+        await WaitForTopicDeletionAsync(admin, pending, cancellationToken).ConfigureAwait(false);
+    }
 
     private void ObserveStreamTask()
     {
@@ -234,416 +379,115 @@ public sealed class StreamTallyHostedService : IHostedService
             return;
         }
 
-        _ = _streamTask.ContinueWith(t =>
-        {
-            if (t.IsFaulted && t.Exception is not null)
+        _ = _streamTask.ContinueWith(
+            t =>
             {
-                _logger.LogError(t.Exception.GetBaseException(), "Kafka stream stopped unexpectedly.");
-            }
-            else if (t.IsCanceled)
-            {
-                _logger.LogWarning("Kafka stream task was cancelled.");
-            }
-            else
-            {
-                _logger.LogInformation("Kafka stream task completed.");
-            }
-        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                if (!t.IsFaulted || t.Exception is null)
+                {
+                    return;
+                }
+
+                var exception = t.Exception.GetBaseException();
+
+                if (TryExtractExistingInternalTopics(exception, out var topics) && _logger.IsEnabled(LogLevel.Warning))
+                {
+                    _logger.LogWarning(
+                        "Kafka stream stopped because internal topic(s) already existed: {Topics}",
+                        string.Join(", ", topics));
+                    return;
+                }
+
+                if (_logger.IsEnabled(LogLevel.Error))
+                {
+                    _logger.LogError(exception, "Kafka stream stopped unexpectedly");
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
-    // Removed async disposal path; synchronous disposal sufficient for current resource profile.
-
-    private void DisposeStream()
+    private static bool TryExtractExistingInternalTopics(Exception exception, out IReadOnlyCollection<string> topics)
     {
-        if (_stream is null)
+        if (exception is StreamsException { InnerException: CreateTopicsException createException })
+        {
+            var duplicates = createException.Results
+                .Where(r => r.Error.Code == ErrorCode.TopicAlreadyExists)
+                .Select(r => r.Topic)
+                .ToList();
+
+            if (duplicates.Count > 0 && duplicates.Count == createException.Results.Count)
+            {
+                topics = duplicates;
+                return true;
+            }
+        }
+
+        topics = Array.Empty<string>();
+        return false;
+    }
+
+    private async Task WaitForTopicDeletionAsync(IAdminClient admin, HashSet<string> pending, CancellationToken cancellationToken)
+    {
+        if (pending.Count == 0)
         {
             return;
         }
-        try
-        {
-            _stream.Dispose();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Error disposing stream during retry.");
-        }
-        finally
-        {
-            _stream = null;
-            _streamTask = null;
-        }
-    }
 
-    // Extract internal/existing topic conflicts from exception graphs (recoverable scenarios)
-    private static bool TryExtractRecoverableTopics(Exception exception, out IReadOnlyCollection<string> topics)
-    {
-        var recoverable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var q = new Queue<Exception>();
-        q.Enqueue(exception);
-        while (q.Count > 0)
+        var watch = Stopwatch.StartNew();
+        var timeout = TimeSpan.FromMinutes(2);
+
+        while (!cancellationToken.IsCancellationRequested && watch.Elapsed < timeout && pending.Count > 0)
         {
-            var current = q.Dequeue();
-            if (current is AggregateException agg)
+            foreach (var topic in pending.ToArray())
             {
-                foreach (var inner in agg.InnerExceptions)
+                try
                 {
-                    q.Enqueue(inner);
-                }
-            }
-            if (current.InnerException is not null)
-            {
-                q.Enqueue(current.InnerException);
-            }
-            if (current is CreateTopicsException cte)
-            {
-                foreach (var result in cte.Results)
-                {
-                    if (result.Error.Code == ErrorCode.TopicAlreadyExists || result.Error.Code == ErrorCode.InvalidPartitions)
+                    var topicMetadata = admin.GetMetadata(topic, TimeSpan.FromSeconds(5)).Topics.FirstOrDefault();
+                    if (topicMetadata is null || topicMetadata.Error.Code == ErrorCode.UnknownTopicOrPart)
                     {
-                        recoverable.Add(result.Topic);
+                        pending.Remove(topic);
+                        continue;
+                    }
+
+                    var partitionErrors = topicMetadata.Partitions?
+                        .Select(p => p.Error.Code)
+                        .ToList() ?? new List<ErrorCode>();
+
+                    if (partitionErrors.Count > 0 && partitionErrors.All(code => code == ErrorCode.UnknownTopicOrPart))
+                    {
+                        pending.Remove(topic);
                     }
                 }
-            }
-            if (!string.IsNullOrWhiteSpace(current.Message))
-            {
-                ExtractTopicsFromMessage(current.Message, recoverable);
-            }
-        }
-        topics = recoverable.Count > 0 ? recoverable : Array.Empty<string>();
-        return recoverable.Count > 0;
-    }
-
-    // Heuristic parsing of topic names embedded in exception messages.
-    private static void ExtractTopicsFromMessage(string message, ISet<string> accumulator)
-    {
-        const string existingTopicPrefix = "Existing internal topic ";
-        const string existingTopicSuffix = " with invalid partitions";
-        var index = 0;
-        while (index < message.Length)
-        {
-            var start = message.IndexOf(existingTopicPrefix, index, StringComparison.OrdinalIgnoreCase);
-            if (start < 0) break;
-            start += existingTopicPrefix.Length;
-            var end = message.IndexOf(existingTopicSuffix, start, StringComparison.OrdinalIgnoreCase);
-            if (end > start)
-            {
-                var topic = message[start..end].Trim();
-                if (topic.Length > 0) accumulator.Add(topic);
-            }
-            index = end > 0 ? end + existingTopicSuffix.Length : message.Length;
-        }
-        const string quotedPrefix = "Topic '";
-        const string quotedSuffix = "' already exists";
-        index = 0;
-        while (index < message.Length)
-        {
-            var start = message.IndexOf(quotedPrefix, index, StringComparison.OrdinalIgnoreCase);
-            if (start < 0) break;
-            start += quotedPrefix.Length;
-            var suffixIndex = message.IndexOf(quotedSuffix, start, StringComparison.OrdinalIgnoreCase);
-            if (suffixIndex < 0) break;
-            var end = suffixIndex;
-            if (end > start)
-            {
-                var topic = message[start..end].Trim();
-                if (topic.Length > 0) accumulator.Add(topic);
-            }
-            index = suffixIndex + quotedSuffix.Length;
-        }
-    }
-
-    private void LogRecoverableFailure(IReadOnlyCollection<string> topics, int attempt, int maxAttempts)
-    {
-        _logger.LogWarning(
-            "Kafka stream startup conflicting topic(s): {Topics}. Attempt {Attempt}/{Max}.",
-            string.Join(", ", topics),
-            attempt,
-            maxAttempts);
-    }
-
-    private bool AreAllInternal(IReadOnlyCollection<string> topics)
-    {
-    var prefix = (_runApplicationId ?? BaseApplicationId) + "-";
-        foreach (var t in topics)
-        {
-            if (!t.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-            if (!(t.Contains("-changelog", StringComparison.OrdinalIgnoreCase) || t.Contains("-repartition", StringComparison.OrdinalIgnoreCase)))
-            {
-                return false; // Not an internal changelog/repartition topic
-            }
-        }
-        return true;
-    }
-
-    private async Task DeleteInternalTopicsAsync(IReadOnlyCollection<string> topics, CancellationToken cancellationToken)
-    {
-        using var admin = new AdminClientBuilder(new AdminClientConfig { BootstrapServers = _options.BootstrapServers }).Build();
-        try
-        {
-            await admin.DeleteTopicsAsync(topics, new DeleteTopicsOptions { RequestTimeout = TimeSpan.FromSeconds(30), OperationTimeout = TimeSpan.FromSeconds(30) }).ConfigureAwait(false);
-        }
-        catch (DeleteTopicsException ex)
-        {
-            foreach (var r in ex.Results)
-            {
-                if (r.Error.Code != ErrorCode.UnknownTopicOrPart)
+                catch (KafkaException ex) when (ex.Error.Code == ErrorCode.UnknownTopicOrPart)
                 {
-                    _logger.LogDebug("DeleteTopics result for {Topic}: {Code} - {Reason}", r.Topic, r.Error.Code, r.Error.Reason);
+                    pending.Remove(topic);
                 }
             }
-        }
-        // Wait a short stabilization window for deletion to propagate.
-        var delay = TimeSpan.FromSeconds(2);
-        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-    }
 
-    private IKStream<string, NormalizedVote> BuildStream(StreamBuilder builder, string topic, ISerDes<VoteEnvelope> valueSerDes)
-    {
-        return builder
-            .Stream<string, VoteEnvelope>(topic, new StringSerDes(), valueSerDes)
-            .MapValues<NormalizedVote>((value, _) =>
+            if (pending.Count == 0)
             {
-                var nv = NormalizeVote(value);
-                if (!string.IsNullOrEmpty(nv.Option))
-                {
-                    System.Threading.Interlocked.Increment(ref _processedValidVotes);
-                }
-                return nv;
-            });
-    }
+                break;
+            }
 
-    private StreamConfig BuildStreamConfig(string applicationId, short replicationFactor)
-    {
-        // Randomize state directory per run to avoid cross-run UUID reuse
-        var stateDir = Path.Combine(AppContext.BaseDirectory, "stream-state", applicationId);
-        Directory.CreateDirectory(stateDir);
-        var config = new StreamConfig
-        {
-            ApplicationId = applicationId,
-            BootstrapServers = _options.BootstrapServers,
-            AutoOffsetReset = AutoOffsetReset.Earliest,
-            StateDir = stateDir,
-            Guarantee = ProcessingGuarantee.EXACTLY_ONCE,
-            ReplicationFactor = replicationFactor,
-            CommitIntervalMs = StreamConfig.EOS_DEFAULT_COMMIT_INTERVAL_MS,
-            NumStreamThreads = 1,
-            DefaultKeySerDes = new StringSerDes(),
-            DefaultValueSerDes = new JsonSerDes<NormalizedVote>()
-        };
-        config.AllowAutoCreateTopics = false; // Expect topics provisioned externally
-        // Inner exception handler: swallow recoverable internal topic creation conflicts (already exists, invalid partitions)
-        config.InnerExceptionHandler = ex =>
-        {
-            try
+            if (_logger.IsEnabled(LogLevel.Debug))
             {
-                if (TryExtractRecoverableTopics(ex, out var topics) && topics.Count > 0 && AreAllInternal(topics))
-                {
-                    _logger.LogWarning("Ignoring recoverable internal topic creation conflicts: {Topics}", string.Join(", ", topics));
-                    return ExceptionHandlerResponse.CONTINUE;
-                }
+                _logger.LogDebug(
+                    "Streamiz cleanup waiting for {Remaining} internal topic(s) to delete: {Topics}",
+                    pending.Count,
+                    string.Join(", ", pending));
             }
-            catch (Exception handlerEx)
-            {
-                _logger.LogDebug(handlerEx, "InnerExceptionHandler processing failure.");
-            }
-            // Fallback: treat as non-recoverable -> let stream continue (could be refined to FAIL when available)
-            return ExceptionHandlerResponse.CONTINUE;
-        };
-        // Deserialization handler: skip bad JSON instead of killing stream
-        config.DeserializationExceptionHandler = (ctx, record, ex) =>
-        {
-            try
-            {
-                var total = System.Threading.Interlocked.Increment(ref _deserErrorCount);
-                // Capture first few payload previews for forensic analysis
-                if (_deserWarnLimit == 0)
-                {
-                    InitializeDeserLoggingConfig();
-                }
-                if (total <= _deserWarnLimit)
-                {
-                    var preview = TruncateForPreview(record.Message?.Value, _deserPayloadPreviewLimit);
-                    _logger.LogWarning("Deserialization error #{Count} skipped topic={Topic} partition={Partition} offset={Offset}: {Error}. Preview='{Preview}'", total, record.Topic, record.Partition, record.Offset, ex.Message, preview);
-                }
-                else if (_deserSummaryInterval > 0 && total % _deserSummaryInterval == 0)
-                {
-                    var delta = total - _deserLastLoggedSummaryCount;
-                    _deserLastLoggedSummaryCount = total;
-                    _logger.LogWarning("Deserialization errors accumulated: total={Total} (+{Delta} since last summary). Recent error: {Error}", total, delta, ex.Message);
-                }
-                else
-                {
-                    // Reduce noise after warn limit surpassed
-                    _logger.LogDebug("Deserialization error skipped (count={Count}) topic={Topic} partition={Partition} offset={Offset}: {Error}", total, record.Topic, record.Partition, record.Offset, ex.Message);
-                }
-            }
-            catch (Exception logEx)
-            {
-                _logger.LogDebug(logEx, "Failed logging deserialization error");
-            }
-            return ExceptionHandlerResponse.CONTINUE;
-        };
-        _logger.LogInformation("Stream config: guarantee={Guarantee}, commit.interval.ms={CommitIntervalMs}, replication.factor={ReplicationFactor}, state.dir={StateDir}",
-            config.Guarantee, config.CommitIntervalMs, config.ReplicationFactor, config.StateDir);
-        return config;
-    }
 
-    private string GenerateUniqueApplicationId()
-    {
-        // Time-based suffix; GUID fallback in rare collision case.
-        var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        return $"{BaseApplicationId}-{ts}";
-    }
-
-    private void LogExistingInternalTopics(string applicationId)
-    {
-        try
-        {
-            using var admin = new AdminClientBuilder(new AdminClientConfig { BootstrapServers = _options.BootstrapServers }).Build();
-            var metadata = admin.GetMetadata(TimeSpan.FromSeconds(5));
-            var prefix = applicationId + "-";
-            var internalTopics = new List<string>();
-            foreach (var t in metadata.Topics)
-            {
-                if (t.Error.Code == ErrorCode.NoError && t.Topic.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    internalTopics.Add(t.Topic);
-                }
-            }
-            if (internalTopics.Count == 0)
-            {
-                _logger.LogInformation("No existing internal topics for application.id {AppId}", applicationId);
-                return;
-            }
-            _logger.LogWarning("Existing internal topics (pre-start): {Topics}", string.Join(", ", internalTopics));
-            DescribeTopics(internalTopics, "pre-start");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to log existing internal topics");
-        }
-    }
-
-    private void DescribeTopics(IEnumerable<string> topics, string context)
-    {
-        try
-        {
-            using var admin = new AdminClientBuilder(new AdminClientConfig { BootstrapServers = _options.BootstrapServers }).Build();
-            var allMd = admin.GetMetadata(TimeSpan.FromSeconds(5));
-            var set = new HashSet<string>(topics, StringComparer.OrdinalIgnoreCase);
-            foreach (var t in allMd.Topics)
-            {
-                if (!set.Contains(t.Topic)) continue;
-                if (t.Error.Code != ErrorCode.NoError)
-                {
-                    _logger.LogWarning("{Context}: describe error {Topic} {Code} {Reason}", context, t.Topic, t.Error.Code, t.Error.Reason);
-                    continue;
-                }
-                var partDetailsList = new List<string>();
-                foreach (var p in t.Partitions)
-                {
-                    var replicas = string.Join('/', p.Replicas);
-                    partDetailsList.Add($"{p.PartitionId}(leader={p.Leader},replicas={replicas})");
-                }
-                var rf = t.Partitions.Count > 0 ? pReplicasCount(t.Partitions[0]) : 0;
-                _logger.LogInformation("{Context}: {Topic} partitions={PartitionCount} replicationFactor~={Rf} detail=[{Details}]",
-                    context, t.Topic, t.Partitions.Count, rf, string.Join(", ", partDetailsList));
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "DescribeTopics failed in context {Context}", context);
-        }
-    }
-
-    private short ValidateReplicationFactor(short requested)
-    {
-        try
-        {
-            using var admin = new AdminClientBuilder(new AdminClientConfig { BootstrapServers = _options.BootstrapServers }).Build();
-            var md = admin.GetMetadata(TimeSpan.FromSeconds(5));
-            var brokerCount = (short)md.Brokers.Count;
-            if (brokerCount <= 0)
-            {
-                _logger.LogWarning("No brokers discovered; using requested replication factor {Requested}", requested);
-                return requested;
-            }
-            if (requested > brokerCount)
-            {
-                _logger.LogWarning("Requested replication factor {Requested} exceeds broker count {BrokerCount}. Downgrading to broker count.", requested, brokerCount);
-                return brokerCount;
-            }
-            return requested;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Replication factor validation failed; using requested {Requested}", requested);
-            return requested;
-        }
-    }
-
-    private void TryLogFailingInternalTopics(Exception ex)
-    {
-        try
-        {
-            if (!TryExtractRecoverableTopics(ex, out var topics) || topics.Count == 0)
-            {
-                return;
-            }
-            DescribeTopics(topics, "failure-path");
-        }
-        catch (Exception inner)
-        {
-            _logger.LogDebug(inner, "Failed to describe failing internal topics");
-        }
-    }
-
-    private void StartHealthLogging()
-    {
-        _healthTimer = new Timer(_ =>
-        {
-            try
-            {
-                // Streamiz KafkaStream may expose a State enum/property named 'StreamState' or 'State'. Try reflection fallback.
-                string state;
-                if (_stream == null)
-                {
-                    state = "NOT_INITIALIZED";
-                }
-                else
-                {
-                    var type = _stream.GetType();
-                    var prop = type.GetProperty("State") ?? type.GetProperty("StreamState");
-                    state = prop != null ? (prop.GetValue(_stream)?.ToString() ?? "UNKNOWN") : "UNKNOWN";
-                }
-                var deserCountSnapshot = System.Threading.Interlocked.Read(ref _deserErrorCount);
-                var processedSnapshot = System.Threading.Interlocked.Read(ref _processedValidVotes);
-                _logger.LogDebug("[Health] app.id={AppId} state={State} deser.errors={DeserErrors} processed.valid.votes={Processed}", _runApplicationId, state, deserCountSnapshot, processedSnapshot);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Health logging tick failed");
-            }
-        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60));
-    }
-
-        private static int pReplicasCount(object partitionMetadata)
-        {
-            // PartitionMetadata type (Confluent) exposes Replicas as IList<int>; use reflection to stay loose.
-            var prop = partitionMetadata.GetType().GetProperty("Replicas");
-            if (prop?.GetValue(partitionMetadata) is System.Collections.ICollection coll)
-            {
-                return coll.Count;
-            }
-            return 0;
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
         }
 
-    private void StopHealthLogging()
-    {
-        try { _healthTimer?.Dispose(); } finally { _healthTimer = null; }
+        if (pending.Count > 0 && _logger.IsEnabled(LogLevel.Warning))
+        {
+            _logger.LogWarning(
+                "Streamiz cleanup timed out after {Elapsed} while waiting for Kafka to drop internal topics: {Topics}",
+                watch.Elapsed,
+                string.Join(", ", pending));
+        }
     }
 
     private VoteTotal CreateGlobalTotal(string option, long count)
@@ -661,11 +505,14 @@ public sealed class StreamTallyHostedService : IHostedService
         var separator = key.IndexOf(':');
         if (separator <= 0 || separator >= key.Length - 1)
         {
-            return null; // Malformed key
+            return null;
         }
+
         var cityTopic = key[..separator];
         var option = key[(separator + 1)..];
+
         _cityCatalog.TryGetByTopic(cityTopic, out var city);
+
         return new VoteTotal
         {
             Option = option,
@@ -682,62 +529,273 @@ public sealed class StreamTallyHostedService : IHostedService
         {
             return (int)count;
         }
-        _logger.LogWarning("Vote count for option {Option} capped at {Max}", option, int.MaxValue);
+
+        if (_logger.IsEnabled(LogLevel.Warning))
+        {
+            _logger.LogWarning(
+                "Vote count for option {Option} capped at {Max}",
+                option,
+                int.MaxValue);
+        }
+
         return int.MaxValue;
     }
 
-    private static NormalizedVote NormalizeVote(VoteEnvelope? envelope)
+    private NormalizedVote NormalizeVote(VoteEnvelope? envelope)
     {
         var vote = envelope?.Event;
         if (vote is null)
         {
             return NormalizedVote.Empty;
         }
+
         var option = NormalizeOption(vote.Option);
-        return new NormalizedVote(option, envelope?.CityTopic, envelope?.City, envelope?.ZipCode);
+        if (option.Length > 0)
+        {
+            System.Threading.Interlocked.Increment(ref _processedValidVotes);
+        }
+        return new NormalizedVote(
+            option,
+            envelope?.CityTopic,
+            envelope?.City,
+            envelope?.ZipCode);
     }
 
     private static string NormalizeOption(string? option)
     {
-        return string.IsNullOrWhiteSpace(option) ? string.Empty : option.Trim().ToUpperInvariant();
+        return string.IsNullOrWhiteSpace(option)
+            ? string.Empty
+            : option.Trim().ToUpperInvariant();
     }
 
-    // --- Deserialization error logging helpers ---
-    private void InitializeDeserLoggingConfig()
+    private IEnumerable<KeyValuePair<string, NormalizedVote>> BuildAggregationRecords(NormalizedVote vote)
     {
-        // Idempotent initialization; only set if not already configured (warn limit == 0 sentinel)
-        if (_deserWarnLimit != 0)
+        var results = new List<KeyValuePair<string, NormalizedVote>>(2)
+        {
+            KeyValuePair.Create(BuildAggregationKey(AggregationOutputType.Global, null, vote.Option), vote)
+        };
+
+        if (!string.IsNullOrWhiteSpace(vote.CityTopic))
+        {
+            results.Add(KeyValuePair.Create(BuildAggregationKey(AggregationOutputType.City, vote.CityTopic, vote.Option), vote));
+        }
+
+        return results;
+    }
+
+    private AggregationResult CreateAggregationResult(string aggregationKey, long count)
+    {
+        if (!TryParseAggregationKey(aggregationKey, out var type, out var cityTopic, out var option))
+        {
+            return AggregationResult.Empty;
+        }
+
+        if (type == AggregationOutputType.Global)
+        {
+            var total = CreateGlobalTotal(option, count);
+            return new AggregationResult(type, option, total);
+        }
+
+        if (string.IsNullOrWhiteSpace(cityTopic))
+        {
+            return AggregationResult.Empty;
+        }
+
+        var cityKey = string.Concat(cityTopic, ':', option);
+        var cityTotal = CreateCityTotal(cityKey, count);
+
+        return cityTotal is null
+            ? AggregationResult.Empty
+            : new AggregationResult(type, cityKey, cityTotal);
+    }
+
+    private static string BuildAggregationKey(AggregationOutputType type, string? cityTopic, string option)
+    {
+        return type switch
+        {
+            AggregationOutputType.Global => string.Concat("G|", option),
+            AggregationOutputType.City when !string.IsNullOrWhiteSpace(cityTopic) => string.Concat("C|", cityTopic, '|', option),
+            _ => throw new InvalidOperationException("Invalid aggregation key parameters.")
+        };
+    }
+
+    private static bool TryParseAggregationKey(string aggregationKey, out AggregationOutputType type, out string? cityTopic, out string option)
+    {
+        type = default;
+        cityTopic = null;
+        option = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(aggregationKey) || aggregationKey.Length < 3 || aggregationKey[1] != '|')
+        {
+            return false;
+        }
+
+        var marker = aggregationKey[0];
+
+        if (marker == 'G')
+        {
+            type = AggregationOutputType.Global;
+            option = aggregationKey[2..];
+            return option.Length > 0;
+        }
+
+        if (marker == 'C')
+        {
+            var secondSeparator = aggregationKey.IndexOf('|', 2);
+            if (secondSeparator < 0 || secondSeparator >= aggregationKey.Length - 1)
+            {
+                return false;
+            }
+
+            type = AggregationOutputType.City;
+            cityTopic = aggregationKey[2..secondSeparator];
+            option = aggregationKey[(secondSeparator + 1)..];
+
+            return !string.IsNullOrWhiteSpace(cityTopic) && option.Length > 0;
+        }
+
+        return false;
+    }
+
+    private string ApplicationId => string.Concat(_options.TallyGroupId, "-stream");
+
+    private void StartStallDetection()
+    {
+        try
+        {
+            _stallTimer = new Timer(_ =>
+            {
+                try
+                {
+                    var elapsed = DateTime.UtcNow - _startUtc;
+                    var processed = System.Threading.Interlocked.Read(ref _processedValidVotes);
+                    if (elapsed < _initialGracePeriod)
+                    {
+                        return; // still within grace window
+                    }
+                    if (processed > 0)
+                    {
+                        return; // activity observed
+                    }
+                    if (_options != null && !_performedAutoRecovery)
+                    {
+                        // If flagged, perform one-time auto recovery (local state reset + restart)
+                        // We rely on feature flags via Program controlling ForceStateResetOnStart & AutoStallRecoveryEnabled; simplified reflection check.
+                        // Without direct access to flags instance here (not injected previously), we do conservative recovery using environment fallbacks.
+                        var autoRecover = string.Equals(Environment.GetEnvironmentVariable("KAFKA_AUTO_STALL_RECOVERY"), "true", StringComparison.OrdinalIgnoreCase);
+                        if (!autoRecover)
+                        {
+                            _logger.LogWarning("[StallDetection] No votes processed after {Elapsed}. Enable AutoStallRecovery to reset local state.", elapsed);
+                            return;
+                        }
+                        _performedAutoRecovery = true;
+                        _logger.LogWarning("[StallDetection] Performing ONE-TIME auto recovery after {Elapsed} with 0 processed votes.", elapsed);
+                        try
+                        {
+                            DisposeCurrentStream();
+                            ForceLocalStateReset();
+                            RestartStream();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Auto stall recovery failed");
+                        }
+                    }
+                }
+                catch (Exception ex2)
+                {
+                    _logger.LogDebug(ex2, "Stall detection tick failed");
+                }
+            }, null, _stallCheckInterval, _stallCheckInterval);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to start stall detection timer");
+        }
+    }
+
+    private void StopStallDetection()
+    {
+        try { _stallTimer?.Dispose(); } finally { _stallTimer = null; }
+    }
+
+    private void DisposeCurrentStream()
+    {
+        try
+        {
+            _stream?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "DisposeCurrentStream failure");
+        }
+        finally
+        {
+            _stream = null;
+            _streamTask = null;
+        }
+    }
+
+    private void RestartStream()
+    {
+        try
+        {
+            _startUtc = DateTime.UtcNow;
+            _processedValidVotes = 0;
+            // Minimal rebuild: builder + config + start
+            var builder = new StreamBuilder();
+            var voteSerDes = new ConfluentJsonSerDes<VoteEnvelope>(_schemaRegistryClient, SerializerConfig);
+            var voteTotalSerDes = new ConfluentJsonSerDes<VoteTotal>(_schemaRegistryClient, SerializerConfig);
+            var merged = BuildStream(builder, _options.VotesTopic, voteSerDes);
+            var valid = merged.Filter((_, v, _) => v.Option.Length > 0, "filter-empty-option-r");
+            var agg = valid.FlatMap((_, v, _) => BuildAggregationRecords(v), "flatmap-aggregation-records-r");
+            var counts = agg.GroupByKey().Count("combined-tally-counts-r");
+            var results = counts.ToStream().Map((key, count, _) => KeyValuePair.Create(key, CreateAggregationResult(key, count)), "map-aggregation-result-r");
+            var branches = results.Branch((_, r, _) => r.Type == AggregationOutputType.Global, (_, r, _) => r.Type == AggregationOutputType.City);
+            branches[0]
+                .Filter((_, r, _) => r.Total is not null, "filter-null-global-total-r")
+                .Map((_, r, _) => KeyValuePair.Create(r.OutputKey, r.Total!), "map-global-output-r")
+                .To(_options.TotalsTopic, new StringSerDes(), voteTotalSerDes);
+            branches[1]
+                .Filter((_, r, _) => r.Total is not null, "filter-null-city-total-r")
+                .Map((_, r, _) => KeyValuePair.Create(r.OutputKey, r.Total!), "map-city-output-r")
+                .To(_options.VotesByCityTopic, new StringSerDes(), voteTotalSerDes);
+            var config = BuildStreamConfig();
+            _stream = new KafkaStream(builder.Build(), config);
+            _streamTask = _stream.StartAsync(CancellationToken.None);
+            ObserveStreamTask();
+            _logger.LogWarning("Stall recovery restart issued.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to restart stream during stall recovery");
+        }
+    }
+
+    private void TryForceLocalStateReset()
+    {
+        var force = string.Equals(Environment.GetEnvironmentVariable("KAFKA_FORCE_STATE_RESET"), "true", StringComparison.OrdinalIgnoreCase);
+        if (!force)
         {
             return;
         }
-        _deserWarnLimit = ParseEnvInt("KAFKA_DESER_WARN_LIMIT", 10, 0, 10_000);
-        _deserSummaryInterval = ParseEnvInt("KAFKA_DESER_SUMMARY_INTERVAL", 100, 10, 100_000);
-        _deserPayloadPreviewLimit = ParseEnvInt("KAFKA_DESER_PREVIEW_LIMIT", 120, 16, 10_000);
-        _logger.LogInformation("Deserialization logging config warn.limit={WarnLimit} summary.interval={SummaryInterval} preview.limit={PreviewLimit}", _deserWarnLimit, _deserSummaryInterval, _deserPayloadPreviewLimit);
+        ForceLocalStateReset();
     }
 
-    private static int ParseEnvInt(string name, int @default, int min, int max)
+    private void ForceLocalStateReset()
     {
-        var raw = Environment.GetEnvironmentVariable(name);
-        if (string.IsNullOrWhiteSpace(raw)) return @default;
-        if (!int.TryParse(raw, out var value)) return @default;
-        if (value < min) return min;
-        if (value > max) return max;
-        return value;
-    }
-
-    private static string TruncateForPreview(byte[]? data, int limit)
-    {
-        if (data is null || data.Length == 0) return "<empty>";
         try
         {
-            var text = System.Text.Encoding.UTF8.GetString(data);
-            if (text.Length <= limit) return text;
-            return text.Substring(0, limit) + "…"; // ellipsis
+            var stateDir = Path.Combine(AppContext.BaseDirectory, "stream-state");
+            if (Directory.Exists(stateDir))
+            {
+                Directory.Delete(stateDir, true);
+                _logger.LogWarning("Local stream state directory deleted for forced reset: {Dir}", stateDir);
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            return $"<binary:{data.Length} bytes>";
+            _logger.LogError(ex, "Failed to delete local state directory during forced reset");
         }
     }
 
@@ -746,4 +804,14 @@ public sealed class StreamTallyHostedService : IHostedService
         public static NormalizedVote Empty { get; } = new(string.Empty, null, null, null);
     }
 
+    private sealed record AggregationResult(AggregationOutputType Type, string OutputKey, VoteTotal? Total)
+    {
+        public static AggregationResult Empty { get; } = new(AggregationOutputType.Global, string.Empty, null);
+    }
+
+    private enum AggregationOutputType
+    {
+        Global,
+        City
+    }
 }
