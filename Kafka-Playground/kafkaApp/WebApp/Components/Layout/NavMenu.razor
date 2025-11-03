@@ -1,26 +1,37 @@
 ﻿@using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Routing
 
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">WebApp</a>
+<nav class="nav-shell">
+    <div class="nav-header">
+        <span class="nav-logo">Pulse<span>Vote</span></span>
+        <span class="nav-tagline">Synthetic election console</span>
     </div>
-</div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+    <input type="checkbox" id="nav-toggle" title="Navigation menu" class="nav-toggle" />
+    <label class="nav-toggle-button" for="nav-toggle" aria-label="Toggle navigation">
+        <span></span>
+    </label>
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-lightning-charge-fill-nav-menu" aria-hidden="true"></span> Live Votes
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="dashboard">
-                <span class="bi bi-graph-up-arrow" aria-hidden="true"></span> Dashboard
-            </NavLink>
-        </div>
-    </nav>
-</div>
+    <div class="nav-links" onclick="document.getElementById('nav-toggle').checked = false">
+        <NavLink class="nav-item" href="" Match="NavLinkMatch.All">
+            <span class="nav-item__indicator" aria-hidden="true"></span>
+            <div class="nav-item__content">
+                <span class="nav-item__title">Live votes</span>
+                <span class="nav-item__caption">Manual input · Totals</span>
+            </div>
+        </NavLink>
+        <NavLink class="nav-item" href="dashboard">
+            <span class="nav-item__indicator" aria-hidden="true"></span>
+            <div class="nav-item__content">
+                <span class="nav-item__title">Dashboard</span>
+                <span class="nav-item__caption">Realtime analytics</span>
+            </div>
+        </NavLink>
+    </div>
+
+    <footer class="nav-footer">
+        <span class="nav-footer__label">Stream uptime</span>
+        <span class="nav-footer__value">Always on</span>
+    </footer>
+</nav>
 

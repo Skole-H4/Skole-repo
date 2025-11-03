@@ -1,35 +1,44 @@
 @inject VoteTotalsStore TotalsStore
 @implements IDisposable
 
-<div class="card shadow-sm">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <span>@Title</span>
+<div class="glass-card panel @CssClass">
+    <header class="panel-header panel-header--between">
+        <div>
+            <h2 class="panel-title">@Title</h2>
+            @if (!string.IsNullOrWhiteSpace(Subtitle))
+            {
+                <p class="panel-subtitle">@Subtitle</p>
+            }
+        </div>
         @if (ShowRefresh)
         {
             <button class="btn btn-outline-secondary btn-sm" @onclick="RefreshAsync" disabled="@_busy">
-                Refresh
+                @(_busy ? "Syncing…" : "Sync")
             </button>
         }
-    </div>
-    <div class="card-body">
-        @if (!string.IsNullOrWhiteSpace(Status) && ShowStatus)
-        {
-            <div class="text-muted mb-2">@Status</div>
-        }
-        <table class="table table-sm mb-0">
+    </header>
+    @if (!string.IsNullOrWhiteSpace(Status) && ShowStatus)
+    {
+        <div class="callout callout--muted">@Status</div>
+    }
+    <div class="table-frame">
+        <table class="data-table data-table--compact">
             <thead>
-                <tr><th>Option</th><th class="text-end">Count</th></tr>
+                <tr>
+                    <th>Option</th>
+                    <th class="u-text-end">Count</th>
+                </tr>
             </thead>
             <tbody>
                 @if (_totals.Count == 0)
                 {
-                    <tr><td colspan="2" class="text-muted">@EmptyText</td></tr>
+                    <tr><td colspan="2" class="empty-state">@EmptyText</td></tr>
                 }
                 else
                 {
                     @foreach (var kv in _totals)
                     {
-                        <tr><td>@kv.Key</td><td class="text-end">@kv.Value</td></tr>
+                        <tr><td>@kv.Key</td><td class="u-text-end">@kv.Value.ToString("N0")</td></tr>
                     }
                 }
             </tbody>
@@ -55,6 +64,12 @@
 
     [Parameter]
     public EventCallback RefreshRequested { get; set; }
+
+    [Parameter]
+    public string? Subtitle { get; set; }
+
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
 
     private readonly Dictionary<string, int> _totals = new(StringComparer.OrdinalIgnoreCase);
     private bool _subscribed;

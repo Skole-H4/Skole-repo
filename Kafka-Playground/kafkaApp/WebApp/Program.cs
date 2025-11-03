@@ -62,8 +62,10 @@ builder.Services.AddHostedService<TotalsConsumer>();
 builder.Services.AddHostedService<CityVotesConsumer>();
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
-
+    .AddInteractiveServerComponents(options =>
+    {
+        options.DetailedErrors = true;
+    });
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
