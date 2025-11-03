@@ -1,5 +1,39 @@
 namespace TallyService.HostedServices;
 
+// -------------------------------------------------------------------------------------------------
+// StreamTallyHostedService
+//
+// This hosted service builds and runs a single Streamiz Kafka topology which consumes raw vote
+// envelopes and produces two compacted aggregation topics:
+//   1. TotalsTopic        (global vote counts per option)
+//   2. VotesByCityTopic   (vote counts per option scoped to a city topic)
+//
+// High-level processing flow:
+//   - Source vote envelope stream(s) are normalized (option casing and empty filtering).
+//   - Each normalized vote is expanded (FlatMap) into one or two aggregation records:
+//       * Global record:  G|<OPTION>
+//       * City record:    C|<CITY_TOPIC>|<OPTION> (only if CityTopic present in envelope)
+//   - A single grouped-count aggregation tallies all records (Count). This produces a unified
+//     KTable keyed by aggregation markers.
+//   - Aggregation keys are parsed back into strongly typed AggregationResult objects.
+//   - Results are branched into global and city outputs and mapped into VoteTotal objects.
+//   - VoteTotal records are written to their respective compacted topics.
+//
+// Operational safeguards:
+//   - EXACTLY_ONCE processing guarantee minimizes duplicate output during failures.
+//   - Internal Streamiz topics are cleaned up on startup if stale (e.g., after abrupt shutdown).
+//   - If Kafka reports pre-existing internal topics causing startup failure, a targeted cleanup
+//     retry is executed (limited attempts) before surfacing the error.
+//   - ApplicationId is derived from the configured tally consumer group for consistent naming.
+//
+// Key design choices:
+//   - Single aggregation path (merged streams) reduces complexity vs. parallel per-city counting.
+//   - Compact output topics hold only the latest count per key; upstream consumers can treat them
+//     as materialized views.
+//   - NormalizedVote and AggregationResult are lightweight internal record types to keep the flow
+//     explicit and self-documenting.
+// -------------------------------------------------------------------------------------------------
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -37,12 +71,6 @@ public sealed class StreamTallyHostedService : IHostedService
 
     private KafkaStream? _stream;
     private Task? _streamTask;
-    private Timer? _stallTimer;
-    private bool _performedAutoRecovery;
-    private long _processedValidVotes;
-    private DateTime _startUtc;
-    private readonly TimeSpan _stallCheckInterval = TimeSpan.FromSeconds(45);
-    private readonly TimeSpan _initialGracePeriod = TimeSpan.FromSeconds(30);
 
     public StreamTallyHostedService(
         KafkaOptions options,
@@ -56,17 +84,17 @@ public sealed class StreamTallyHostedService : IHostedService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    /// <summary>
+    /// Builds the stream topology and starts the Kafka stream. Performs an initial cleanup of
+    /// stale internal topics, then attempts startup with limited retry logic if conflicting
+    /// internal topics are detected (e.g., leftover from previous run with different configuration).
+    /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         if (_stream is not null)
         {
             return;
         }
-
-        _startUtc = DateTime.UtcNow;
-
-        // Optional local state reset (development recovery) controlled by feature flag
-        TryForceLocalStateReset();
 
         await CleanupStaleInternalTopicsAsync(cancellationToken).ConfigureAwait(false);
 
@@ -157,11 +185,14 @@ public sealed class StreamTallyHostedService : IHostedService
             }
 
             ObserveStreamTask();
-            StartStallDetection();
             break;
         }
     }
 
+    /// <summary>
+    /// Stops the running Kafka stream (if active) disposing resources and awaiting any completion
+    /// tasks. Errors during disposal are logged but suppressed to allow graceful shutdown.
+    /// </summary>
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         if (_stream is null)
@@ -188,10 +219,12 @@ public sealed class StreamTallyHostedService : IHostedService
         {
             _stream = null;
             _streamTask = null;
-            StopStallDetection();
         }
     }
 
+    /// <summary>
+    /// Constructs a source stream for vote envelopes and maps values into <see cref="NormalizedVote"/>.
+    /// </summary>
     private IKStream<string, NormalizedVote> BuildStream(
         StreamBuilder builder,
         string topic,
@@ -202,6 +235,9 @@ public sealed class StreamTallyHostedService : IHostedService
             .MapValues<NormalizedVote>((value, _) => NormalizeVote(value));
     }
 
+    /// <summary>
+    /// Merges multiple vote streams into a single stream. Requires at least one source stream.
+    /// </summary>
     private static IKStream<string, NormalizedVote> MergeStreams(IReadOnlyList<IKStream<string, NormalizedVote>> streams)
     {
         if (streams.Count == 0)
@@ -218,6 +254,9 @@ public sealed class StreamTallyHostedService : IHostedService
         return merged;
     }
 
+    /// <summary>
+    /// Creates the Streamiz configuration with exactly-once semantics and a deterministic state directory.
+    /// </summary>
     private StreamConfig BuildStreamConfig()
     {
         var stateDir = Path.Combine(AppContext.BaseDirectory, "stream-state");
@@ -242,6 +281,10 @@ public sealed class StreamTallyHostedService : IHostedService
         return config;
     }
 
+    /// <summary>
+    /// Removes any internal Streamiz topics from previous runs whose names match the current application id.
+    /// This helps avoid topology startup conflicts after abrupt shutdowns or configuration changes.
+    /// </summary>
     private async Task CleanupStaleInternalTopicsAsync(CancellationToken cancellationToken)
     {
         var prefix = string.Concat(ApplicationId, '-');
@@ -312,6 +355,10 @@ public sealed class StreamTallyHostedService : IHostedService
         await WaitForTopicDeletionAsync(admin, pending, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Deletes a specific set of internal Streamiz topics (typically reported as duplicates during startup)
+    /// and waits for deletion to propagate before retrying stream initialization.
+    /// </summary>
     private async Task CleanupInternalTopicsAsync(IEnumerable<string> topics, CancellationToken cancellationToken)
     {
         var targets = topics
@@ -372,6 +419,10 @@ public sealed class StreamTallyHostedService : IHostedService
         await WaitForTopicDeletionAsync(admin, pending, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Attaches a continuation to the stream task to log failures and surface specific internal topic
+    /// duplication scenarios distinctly from general unexpected errors.
+    /// </summary>
     private void ObserveStreamTask()
     {
         if (_streamTask is null)
@@ -407,6 +458,9 @@ public sealed class StreamTallyHostedService : IHostedService
             TaskScheduler.Default);
     }
 
+    /// <summary>
+    /// Parses a stream startup exception chain to extract internal topic names when Kafka signals they already exist.
+    /// </summary>
     private static bool TryExtractExistingInternalTopics(Exception exception, out IReadOnlyCollection<string> topics)
     {
         if (exception is StreamsException { InnerException: CreateTopicsException createException })
@@ -427,6 +481,9 @@ public sealed class StreamTallyHostedService : IHostedService
         return false;
     }
 
+    /// <summary>
+    /// Polls Kafka for topic deletion completion for a set of pending internal topics until removal or timeout.
+    /// </summary>
     private async Task WaitForTopicDeletionAsync(IAdminClient admin, HashSet<string> pending, CancellationToken cancellationToken)
     {
         if (pending.Count == 0)
@@ -490,6 +547,9 @@ public sealed class StreamTallyHostedService : IHostedService
         }
     }
 
+    /// <summary>
+    /// Creates a global (non-city scoped) VoteTotal record with timestamp and safe count conversion.
+    /// </summary>
     private VoteTotal CreateGlobalTotal(string option, long count)
     {
         return new VoteTotal
@@ -500,6 +560,10 @@ public sealed class StreamTallyHostedService : IHostedService
         };
     }
 
+    /// <summary>
+    /// Creates a city-scoped VoteTotal based on composite key "<CITY_TOPIC>:<OPTION>". Falls back gracefully
+    /// if the city topic cannot be resolved in the catalog.
+    /// </summary>
     private VoteTotal? CreateCityTotal(string key, long count)
     {
         var separator = key.IndexOf(':');
@@ -523,6 +587,9 @@ public sealed class StreamTallyHostedService : IHostedService
         };
     }
 
+    /// <summary>
+    /// Converts a long count to int, logging and capping when the value exceeds Int32.MaxValue.
+    /// </summary>
     private int ToCount(string option, long count)
     {
         if (count <= int.MaxValue)
@@ -541,7 +608,11 @@ public sealed class StreamTallyHostedService : IHostedService
         return int.MaxValue;
     }
 
-    private NormalizedVote NormalizeVote(VoteEnvelope? envelope)
+    /// <summary>
+    /// Extracts and normalizes a vote envelope into a <see cref="NormalizedVote"/> (upper-case option, trimmed).
+    /// Returns an empty marker if the envelope lacks a valid event.
+    /// </summary>
+    private static NormalizedVote NormalizeVote(VoteEnvelope? envelope)
     {
         var vote = envelope?.Event;
         if (vote is null)
@@ -550,10 +621,6 @@ public sealed class StreamTallyHostedService : IHostedService
         }
 
         var option = NormalizeOption(vote.Option);
-        if (option.Length > 0)
-        {
-            System.Threading.Interlocked.Increment(ref _processedValidVotes);
-        }
         return new NormalizedVote(
             option,
             envelope?.CityTopic,
@@ -561,6 +628,9 @@ public sealed class StreamTallyHostedService : IHostedService
             envelope?.ZipCode);
     }
 
+    /// <summary>
+    /// Normalizes an option string by trimming and upper-casing, returning empty string for null/whitespace.
+    /// </summary>
     private static string NormalizeOption(string? option)
     {
         return string.IsNullOrWhiteSpace(option)
@@ -568,6 +638,9 @@ public sealed class StreamTallyHostedService : IHostedService
             : option.Trim().ToUpperInvariant();
     }
 
+    /// <summary>
+    /// Expands a normalized vote into global and optional city aggregation records keyed with prefix markers.
+    /// </summary>
     private IEnumerable<KeyValuePair<string, NormalizedVote>> BuildAggregationRecords(NormalizedVote vote)
     {
         var results = new List<KeyValuePair<string, NormalizedVote>>(2)
@@ -583,6 +656,9 @@ public sealed class StreamTallyHostedService : IHostedService
         return results;
     }
 
+    /// <summary>
+    /// Translates a counted aggregation key back into a typed AggregationResult mapping output key to VoteTotal.
+    /// </summary>
     private AggregationResult CreateAggregationResult(string aggregationKey, long count)
     {
         if (!TryParseAggregationKey(aggregationKey, out var type, out var cityTopic, out var option))
@@ -609,6 +685,9 @@ public sealed class StreamTallyHostedService : IHostedService
             : new AggregationResult(type, cityKey, cityTotal);
     }
 
+    /// <summary>
+    /// Builds an aggregation key using markers: G|OPTION for global and C|CITY_TOPIC|OPTION for city scoped.
+    /// </summary>
     private static string BuildAggregationKey(AggregationOutputType type, string? cityTopic, string option)
     {
         return type switch
@@ -619,6 +698,9 @@ public sealed class StreamTallyHostedService : IHostedService
         };
     }
 
+    /// <summary>
+    /// Parses an aggregation key into its constituent parts (type, city topic, option). Returns false if malformed.
+    /// </summary>
     private static bool TryParseAggregationKey(string aggregationKey, out AggregationOutputType type, out string? cityTopic, out string option)
     {
         type = default;
@@ -657,147 +739,10 @@ public sealed class StreamTallyHostedService : IHostedService
         return false;
     }
 
+    /// <summary>
+    /// Application id used by Streamiz to name internal topics (derived from tally consumer group id).
+    /// </summary>
     private string ApplicationId => string.Concat(_options.TallyGroupId, "-stream");
-
-    private void StartStallDetection()
-    {
-        try
-        {
-            _stallTimer = new Timer(_ =>
-            {
-                try
-                {
-                    var elapsed = DateTime.UtcNow - _startUtc;
-                    var processed = System.Threading.Interlocked.Read(ref _processedValidVotes);
-                    if (elapsed < _initialGracePeriod)
-                    {
-                        return; // still within grace window
-                    }
-                    if (processed > 0)
-                    {
-                        return; // activity observed
-                    }
-                    if (_options != null && !_performedAutoRecovery)
-                    {
-                        // If flagged, perform one-time auto recovery (local state reset + restart)
-                        // We rely on feature flags via Program controlling ForceStateResetOnStart & AutoStallRecoveryEnabled; simplified reflection check.
-                        // Without direct access to flags instance here (not injected previously), we do conservative recovery using environment fallbacks.
-                        var autoRecover = string.Equals(Environment.GetEnvironmentVariable("KAFKA_AUTO_STALL_RECOVERY"), "true", StringComparison.OrdinalIgnoreCase);
-                        if (!autoRecover)
-                        {
-                            _logger.LogWarning("[StallDetection] No votes processed after {Elapsed}. Enable AutoStallRecovery to reset local state.", elapsed);
-                            return;
-                        }
-                        _performedAutoRecovery = true;
-                        _logger.LogWarning("[StallDetection] Performing ONE-TIME auto recovery after {Elapsed} with 0 processed votes.", elapsed);
-                        try
-                        {
-                            DisposeCurrentStream();
-                            ForceLocalStateReset();
-                            RestartStream();
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Auto stall recovery failed");
-                        }
-                    }
-                }
-                catch (Exception ex2)
-                {
-                    _logger.LogDebug(ex2, "Stall detection tick failed");
-                }
-            }, null, _stallCheckInterval, _stallCheckInterval);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to start stall detection timer");
-        }
-    }
-
-    private void StopStallDetection()
-    {
-        try { _stallTimer?.Dispose(); } finally { _stallTimer = null; }
-    }
-
-    private void DisposeCurrentStream()
-    {
-        try
-        {
-            _stream?.Dispose();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "DisposeCurrentStream failure");
-        }
-        finally
-        {
-            _stream = null;
-            _streamTask = null;
-        }
-    }
-
-    private void RestartStream()
-    {
-        try
-        {
-            _startUtc = DateTime.UtcNow;
-            _processedValidVotes = 0;
-            // Minimal rebuild: builder + config + start
-            var builder = new StreamBuilder();
-            var voteSerDes = new ConfluentJsonSerDes<VoteEnvelope>(_schemaRegistryClient, SerializerConfig);
-            var voteTotalSerDes = new ConfluentJsonSerDes<VoteTotal>(_schemaRegistryClient, SerializerConfig);
-            var merged = BuildStream(builder, _options.VotesTopic, voteSerDes);
-            var valid = merged.Filter((_, v, _) => v.Option.Length > 0, "filter-empty-option-r");
-            var agg = valid.FlatMap((_, v, _) => BuildAggregationRecords(v), "flatmap-aggregation-records-r");
-            var counts = agg.GroupByKey().Count("combined-tally-counts-r");
-            var results = counts.ToStream().Map((key, count, _) => KeyValuePair.Create(key, CreateAggregationResult(key, count)), "map-aggregation-result-r");
-            var branches = results.Branch((_, r, _) => r.Type == AggregationOutputType.Global, (_, r, _) => r.Type == AggregationOutputType.City);
-            branches[0]
-                .Filter((_, r, _) => r.Total is not null, "filter-null-global-total-r")
-                .Map((_, r, _) => KeyValuePair.Create(r.OutputKey, r.Total!), "map-global-output-r")
-                .To(_options.TotalsTopic, new StringSerDes(), voteTotalSerDes);
-            branches[1]
-                .Filter((_, r, _) => r.Total is not null, "filter-null-city-total-r")
-                .Map((_, r, _) => KeyValuePair.Create(r.OutputKey, r.Total!), "map-city-output-r")
-                .To(_options.VotesByCityTopic, new StringSerDes(), voteTotalSerDes);
-            var config = BuildStreamConfig();
-            _stream = new KafkaStream(builder.Build(), config);
-            _streamTask = _stream.StartAsync(CancellationToken.None);
-            ObserveStreamTask();
-            _logger.LogWarning("Stall recovery restart issued.");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to restart stream during stall recovery");
-        }
-    }
-
-    private void TryForceLocalStateReset()
-    {
-        var force = string.Equals(Environment.GetEnvironmentVariable("KAFKA_FORCE_STATE_RESET"), "true", StringComparison.OrdinalIgnoreCase);
-        if (!force)
-        {
-            return;
-        }
-        ForceLocalStateReset();
-    }
-
-    private void ForceLocalStateReset()
-    {
-        try
-        {
-            var stateDir = Path.Combine(AppContext.BaseDirectory, "stream-state");
-            if (Directory.Exists(stateDir))
-            {
-                Directory.Delete(stateDir, true);
-                _logger.LogWarning("Local stream state directory deleted for forced reset: {Dir}", stateDir);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to delete local state directory during forced reset");
-        }
-    }
 
     private sealed record NormalizedVote(string Option, string? CityTopic, string? City, int? ZipCode)
     {
