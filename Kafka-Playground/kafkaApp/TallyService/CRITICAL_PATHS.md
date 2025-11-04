@@ -4,7 +4,8 @@
 TallyService aggregates vote totals exclusively through the Stream Processing path
 (`StreamTallyHostedService` + Streamiz topology). The legacy transactional worker and
 mini diagnostic services have been removed so there is a single source of truth for
-produced tallies.
+produced tallies. Raw vote persistence is now handled by the Kafka Connect JDBC sink
+(`jdbc-sink-votes`) instead of an in-process SQL bulk writer.
 
 ## Critical Paths
 

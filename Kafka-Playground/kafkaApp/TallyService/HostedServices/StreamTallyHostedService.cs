@@ -620,18 +620,17 @@ public sealed class StreamTallyHostedService : IHostedService
     /// </summary>
     private static NormalizedVote NormalizeVote(VoteEnvelope? envelope)
     {
-        var vote = envelope?.Event;
-        if (vote is null)
+        if (envelope is null || envelope.Event is null)
         {
             return NormalizedVote.Empty;
         }
 
-        var option = NormalizeOption(vote.Option);
+        var option = NormalizeOption(envelope.Option);
         return new NormalizedVote(
             option,
-            envelope?.CityTopic,
-            envelope?.City,
-            envelope?.ZipCode);
+            envelope.CityTopic,
+            envelope.City,
+            envelope.ZipCode);
     }
 
     /// <summary>

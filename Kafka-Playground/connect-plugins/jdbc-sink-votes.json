@@ -1,0 +1,28 @@
+{
+  "name": "jdbc-sink-votes",
+  "config": {
+    "connector.class": "io.confluent.connect.jdbc.JdbcSinkConnector",
+    "tasks.max": "1",
+    "topics": "votes",
+    "connection.url": "jdbc:sqlserver://mssql:1433;databaseName=KafkaVotes;encrypt=false;trustServerCertificate=true;",
+    "connection.user": "sa",
+    "connection.password": "ASdgfbbnh5t4!DSDsa_..S_", 
+    "insert.mode": "insert",
+    "auto.create": "false",
+    "auto.evolve": "false",
+    "pk.mode": "none",
+    "batch.size": "10000",
+    "max.retries": "10",
+    "retry.backoff.ms": "500",
+    "dialect.name": "SqlServerDatabaseDialect",
+    "table.name.format": "VotesRaw",
+  "value.converter": "io.confluent.connect.json.JsonSchemaConverter",
+  "value.converter.schema.registry.url": "http://schema-registry:8081",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "delete.enabled": "false",
+    "tasks.flush.timeout.ms": "600000",
+    "transforms": "dropEvent",
+    "transforms.dropEvent.type": "org.apache.kafka.connect.transforms.ReplaceField$Value",
+    "transforms.dropEvent.blacklist": "Event"
+  }
+}
