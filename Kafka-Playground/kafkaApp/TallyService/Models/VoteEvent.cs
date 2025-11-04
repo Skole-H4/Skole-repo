@@ -2,7 +2,8 @@ namespace TallyService.Models;
 
 public sealed class VoteEvent
 {
-    public string UserId { get; set; } = default!;
+    // GUID-based user id produced by WebApp; preserved here for schema alignment / auditing.
+    public Guid UserId { get; set; }
 
     public string Option { get; set; } = default!;
 

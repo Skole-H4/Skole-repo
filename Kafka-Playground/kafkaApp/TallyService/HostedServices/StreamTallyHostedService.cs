@@ -96,7 +96,10 @@ public sealed class StreamTallyHostedService : IHostedService
             return;
         }
 
-        await CleanupStaleInternalTopicsAsync(cancellationToken).ConfigureAwait(false);
+        if (_options.EnableInternalTopicCleanup)
+        {
+            await CleanupStaleInternalTopicsAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         var builder = new StreamBuilder();
 
@@ -140,8 +143,8 @@ public sealed class StreamTallyHostedService : IHostedService
         var topology = builder.Build();
 
         var attempt = 0;
-        const int maxAttempts = 2;
-    var startupGuardDelay = TimeSpan.FromSeconds(5);
+        var maxAttempts = Math.Max(1, _options.MaxStreamStartupRetries);
+        var startupGuardDelay = TimeSpan.FromSeconds(Math.Max(0, _options.StartupGuardDelaySeconds));
 
         while (true)
         {
@@ -171,7 +174,10 @@ public sealed class StreamTallyHostedService : IHostedService
                             string.Join(", ", duplicateTopics));
                     }
 
-                    await CleanupInternalTopicsAsync(duplicateTopics, cancellationToken).ConfigureAwait(false);
+                    if (_options.EnableInternalTopicCleanup)
+                    {
+                        await CleanupInternalTopicsAsync(duplicateTopics, cancellationToken).ConfigureAwait(false);
+                    }
 
                     _stream.Dispose();
                     _stream = null;
@@ -492,7 +498,7 @@ public sealed class StreamTallyHostedService : IHostedService
         }
 
         var watch = Stopwatch.StartNew();
-        var timeout = TimeSpan.FromMinutes(2);
+    var timeout = TimeSpan.FromSeconds(Math.Max(1, _options.InternalTopicDeletionTimeoutSeconds));
 
         while (!cancellationToken.IsCancellationRequested && watch.Elapsed < timeout && pending.Count > 0)
         {

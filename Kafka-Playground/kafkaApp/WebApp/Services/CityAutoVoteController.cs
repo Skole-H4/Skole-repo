@@ -141,7 +141,7 @@ public sealed class CityAutoVoteController : IAsyncDisposable
 
                 var vote = new VoteEvent
                 {
-                    UserId = $"auto-{Topic.ZipCode}-{Random.Shared.Next(1, 1_000_000):D6}",
+                    UserId = Guid.NewGuid(),
                     Option = option,
                     Timestamp = DateTimeOffset.UtcNow
                 };

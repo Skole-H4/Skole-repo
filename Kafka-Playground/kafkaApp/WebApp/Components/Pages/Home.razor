@@ -35,11 +35,6 @@
 		<EditForm class="form-stack" Model="_form" OnValidSubmit="SubmitAsync">
 			<DataAnnotationsValidator />
 			<div class="form-field">
-				<label class="input-label">User Id</label>
-				<InputText class="form-control" @bind-Value="_form.UserId" />
-				<ValidationMessage For="() => _form.UserId" />
-			</div>
-			<div class="form-field">
 				<label class="input-label">Option</label>
 				<InputSelect class="form-select" @bind-Value="_form.Option">
 					@foreach (var party in _parties)
@@ -136,7 +131,6 @@
 			var client = CreateClient();
 			var payload = new VoteRequest
 			{
-				UserId = _form.UserId,
 				Option = _form.Option?.Trim() ?? string.Empty,
 				TargetTopics = new List<string>()
 			};
@@ -235,9 +229,6 @@
 
 	private sealed class VoteForm
 	{
-		[Required]
-		public string UserId { get; set; } = string.Empty;
-
 		[Required]
 		public string Option { get; set; } = string.Empty;
 	}

@@ -112,10 +112,10 @@ app.MapPost("/api/vote", async (VoteRequest request,
                                  IProducer<string, VoteEnvelope> voteProducer,
                                  KafkaOptions kafkaOptions) =>
 {
-    // Basic validation for required fields.
-    if (string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.Option))
+    // Basic validation for required fields (only option now; UserId is generated server-side).
+    if (string.IsNullOrWhiteSpace(request.Option))
     {
-        return Results.BadRequest("UserId and Option are required.");
+        return Results.BadRequest("Option is required.");
     }
 
     var normalizedOption = request.Option.Trim().ToUpperInvariant();
@@ -126,7 +126,7 @@ app.MapPost("/api/vote", async (VoteRequest request,
 
     var voteEvent = new VoteEvent
     {
-        UserId = request.UserId,
+        UserId = Guid.NewGuid(),
         Option = normalizedOption,
         Timestamp = DateTimeOffset.UtcNow
     };
@@ -134,7 +134,7 @@ app.MapPost("/api/vote", async (VoteRequest request,
     var targetCities = ResolveTargets(request.TargetTopics, cityCatalog);
     var deliveryResults = new List<object>(targetCities.Count == 0 ? 1 : targetCities.Count);
 
-    // If no city targets specified, produce a single global vote.
+    // If no city targets specified, produce a single globla vote.
     if (targetCities.Count == 0)
     {
         var globalEnvelope = CreateEnvelope(voteEvent, null);
