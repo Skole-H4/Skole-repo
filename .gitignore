@@ -403,3 +403,8 @@ FodyWeavers.xsd
 
 # Kafka playground data
 Kafka-Playground/data/
+Kafka-Playground/Video/Demo af data i SQL.mp4
+Kafka-Playground/Video/KafkaUISeededWithVoteTopic.mp4
+Kafka-Playground/Video/SpinUpAfLøsningenOgPresentationAfKafkaUIOgConnector.mp4
+Kafka-Playground/Video/SpinUpDockerStack.mp4
+Kafka-Playground/Video/Bevis på votes i databasen.mp4
