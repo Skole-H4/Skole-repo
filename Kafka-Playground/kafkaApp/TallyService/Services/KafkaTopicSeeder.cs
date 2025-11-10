@@ -77,53 +77,98 @@ public sealed class KafkaTopicSeeder : IHostedService
             })
             .ToList();
 
-        if (missingSpecs.Count == 0)
+        // Detect topics that exist with fewer partitions than expected and prepare resize specification.
+        var resizeSpecs = _options.EnableTopicResize
+            ? metadata.Topics
+                .Where(t => expectedTopics.Contains(t.Topic) && t.Partitions.Count < _options.DefaultPartitions)
+                .Select(t => new PartitionsSpecification
+                {
+                    Topic = t.Topic,
+                    IncreaseTo = _options.DefaultPartitions
+                })
+                .ToList()
+            : new List<PartitionsSpecification>();
+
+        if (missingSpecs.Count == 0 && resizeSpecs.Count == 0)
         {
             if (_logger.IsEnabled(LogLevel.Information))
             {
-                _logger.LogInformation("All expected Kafka topics exist.");
+                _logger.LogInformation("All expected Kafka topics exist with required partition counts.");
             }
             return;
         }
 
-        try
+        if (missingSpecs.Count > 0)
         {
-            await admin.CreateTopicsAsync(missingSpecs, new CreateTopicsOptions
+            try
             {
-                OperationTimeout = TimeSpan.FromSeconds(10)
-            }).ConfigureAwait(false);
-            if (_logger.IsEnabled(LogLevel.Information))
-            {
-                _logger.LogInformation(
-                    "Created {Count} Kafka topic(s): {Topics}",
-                    missingSpecs.Count,
-                    string.Join(", ", missingSpecs.Select(s => s.Name)));
-            }
-        }
-        catch (CreateTopicsException ex)
-        {
-            var unexpectedErrors = ex.Results
-                .Where(result => result.Error.Code != ErrorCode.TopicAlreadyExists)
-                .ToList();
-
-            if (unexpectedErrors.Count == 0)
-            {
+                await admin.CreateTopicsAsync(missingSpecs, new CreateTopicsOptions
+                {
+                    OperationTimeout = TimeSpan.FromSeconds(10)
+                }).ConfigureAwait(false);
                 if (_logger.IsEnabled(LogLevel.Information))
                 {
-                    _logger.LogInformation("Kafka topics already existed when tally seeding ran.");
+                    _logger.LogInformation(
+                        "Created {Count} Kafka topic(s): {Topics}",
+                        missingSpecs.Count,
+                        string.Join(", ", missingSpecs.Select(s => s.Name)));
                 }
-                return;
             }
-
-            foreach (var error in unexpectedErrors)
+            catch (CreateTopicsException ex)
             {
-                if (_logger.IsEnabled(LogLevel.Error))
+                var unexpectedErrors = ex.Results
+                    .Where(result => result.Error.Code != ErrorCode.TopicAlreadyExists)
+                    .ToList();
+
+                if (unexpectedErrors.Count == 0)
                 {
-                    _logger.LogError("Failed to create topic {Topic}: {Error}", error.Topic, error.Error.Reason);
+                    if (_logger.IsEnabled(LogLevel.Information))
+                    {
+                        _logger.LogInformation("Kafka topics already existed when tally seeding ran.");
+                    }
+                }
+                else
+                {
+                    foreach (var error in unexpectedErrors)
+                    {
+                        if (_logger.IsEnabled(LogLevel.Error))
+                        {
+                            _logger.LogError("Failed to create topic {Topic}: {Error}", error.Topic, error.Error.Reason);
+                        }
+                    }
+                    throw;
                 }
             }
+        }
 
-            throw;
+        if (resizeSpecs.Count > 0)
+        {
+            try
+            {
+                await admin.CreatePartitionsAsync(resizeSpecs, new CreatePartitionsOptions
+                {
+                    OperationTimeout = TimeSpan.FromSeconds(30)
+                }).ConfigureAwait(false);
+                if (_logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation(
+                        "Increased partitions for {Count} topic(s): {Topics} -> {TargetPartitions}",
+                        resizeSpecs.Count,
+                        string.Join(", ", resizeSpecs.Select(s => s.Topic)),
+                        _options.DefaultPartitions);
+                }
+            }
+            catch (CreatePartitionsException ex)
+            {
+                foreach (var result in ex.Results)
+                {
+                    if (_logger.IsEnabled(LogLevel.Error))
+                    {
+                        _logger.LogError("Failed to resize topic {Topic}: {Error}", result.Topic, result.Error.Reason);
+                    }
+                }
+                // Non-fatal: surface but don't throw to allow startup to proceed (stream may still start if partition mismatch irrelevant).
+            }
         }
     }
 

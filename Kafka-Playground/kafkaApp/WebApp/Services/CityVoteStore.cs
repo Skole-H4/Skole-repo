@@ -12,6 +12,10 @@ public sealed class CityVoteStore
 
     public event Action? CityVotesChanged;
 
+        /// <summary>
+        /// Sets the city vote based on the provided VoteTotal.
+        /// </summary>
+        /// <param name="total">The VoteTotal containing the vote information.</param>
     public void SetCityVote(VoteTotal total)
     {
         if (total is null)
@@ -40,6 +44,10 @@ public sealed class CityVoteStore
 
     public IReadOnlyList<CityVoteSnapshot> GetSnapshot()
     {
+            /// <summary>
+            /// Gets a snapshot of the current city votes.
+            /// </summary>
+            /// <returns>A list of CityVoteSnapshot representing the current votes.</returns>
         return _cities.Values
             .Select(entry => entry.ToSnapshot())
             .OrderByDescending(snapshot => snapshot.TotalVotes)
@@ -60,6 +68,11 @@ public sealed class CityVoteStore
         private int _zipCode;
         private DateTimeOffset _updatedAt;
 
+            /// <summary>
+            /// Initializes a new instance of the CityVoteEntry class.
+            /// </summary>
+            /// <param name="city">The city name.</param>
+            /// <param name="zipCode">The zip code of the city.</param>
         public CityVoteEntry(string city, int zipCode)
         {
             _city = city;
@@ -85,6 +98,10 @@ public sealed class CityVoteStore
             }
         }
 
+            /// <summary>
+            /// Converts the current entry to a CityVoteSnapshot.
+            /// </summary>
+            /// <returns>A CityVoteSnapshot representing the current entry.</returns>
         public CityVoteSnapshot ToSnapshot()
         {
             lock (_gate)

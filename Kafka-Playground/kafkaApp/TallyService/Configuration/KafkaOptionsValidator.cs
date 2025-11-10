@@ -33,6 +33,19 @@ public sealed class KafkaOptionsValidator : IValidateOptions<KafkaOptions>
             failures.Add("DefaultReplicationFactor must be greater than zero.");
         }
 
+        if (options.StartupGuardDelaySeconds < 0)
+        {
+            failures.Add("StartupGuardDelaySeconds cannot be negative.");
+        }
+        if (options.MaxStreamStartupRetries < 0)
+        {
+            failures.Add("MaxStreamStartupRetries cannot be negative.");
+        }
+        if (options.InternalTopicDeletionTimeoutSeconds <= 0)
+        {
+            failures.Add("InternalTopicDeletionTimeoutSeconds must be greater than zero.");
+        }
+
         return failures.Count > 0
             ? ValidateOptionsResult.Fail(failures)
             : ValidateOptionsResult.Success;

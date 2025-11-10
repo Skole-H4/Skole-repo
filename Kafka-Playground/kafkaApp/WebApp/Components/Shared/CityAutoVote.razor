@@ -1,46 +1,46 @@
 @using WebApp.Services
 @implements IDisposable
 
-<div class="card h-100 shadow-sm">
-    <div class="card-header d-flex justify-content-between align-items-center">
+<div class="glass-card panel city-card">
+    <header class="city-card__header panel-header--tight">
         <div>
-            <strong>@Controller.Topic.City</strong>
-            <div class="text-muted small">@Controller.Topic.DisplayName</div>
+            <span class="city-card__title">@Controller.Topic.City</span>
+            <span class="city-card__subtitle">@Controller.Topic.DisplayName</span>
         </div>
-        <span class="@StatusBadgeClass">@StatusLabel</span>
-    </div>
-    <div class="card-body">
-        <div class="mb-3">
-            <label class="form-label">
-                Target rate: <strong>@Controller.TargetPerMinute.ToString("N0")</strong> votes / minute
-            </label>
-         <input type="range"
-             class="form-range"
-             min="0"
-             max="@CityAutoVoteController.MaxVotesPerMinute"
-             step="100"
-             @bind="TargetPerMinute"
-             @bind:event="oninput" />
+        <span class="@StatusBadgeClass">
+            <span class="status-pill__dot" aria-hidden="true"></span>
+            @StatusLabel
+        </span>
+    </header>
+    <div class="city-card__body">
+        <div class="form-field">
+            <label class="input-label">Target rate</label>
+            <div class="city-card__stat">
+                <span class="city-card__value">@Controller.TargetPerMinute.ToString("N0")</span>
+                <span class="city-card__caption">votes / minute</span>
+            </div>
+            <input type="range"
+                   class="form-range"
+                   min="0"
+                   max="@CityAutoVoteController.MaxVotesPerMinute"
+                   step="100"
+                   @bind="TargetPerMinute"
+                   @bind:event="oninput" />
         </div>
 
-        <div class="mb-3 d-flex align-items-center flex-wrap gap-2">
-            <button class="btn @(Controller.IsRunning ? "btn-danger" : "btn-success")"
-                    @onclick="ToggleAsync">
+        <div class="city-card__actions">
+            <button class="btn @(Controller.IsRunning ? "btn-danger" : "btn-success")" @onclick="ToggleAsync">
                 @(Controller.IsRunning ? "Stop" : "Start")
             </button>
-            <span class="text-muted">
-                Actual: <strong>@Controller.ActualPerMinute.ToString("N0")</strong> / minute
-            </span>
-            <span class="text-muted ms-md-3">
-                Total sent: @Controller.TotalSent.ToString("N0")
-            </span>
+            <div class="city-card__metrics">
+                <span>Actual: <strong>@Controller.ActualPerMinute.ToString("N0")</strong>/min</span>
+                <span>Total sent: @Controller.TotalSent.ToString("N0")</span>
+            </div>
         </div>
 
         @if (!string.IsNullOrWhiteSpace(_lastError))
         {
-            <div class="alert alert-danger py-2 mb-0">
-                @_lastError
-            </div>
+            <div class="callout callout--error">@_lastError</div>
         }
     </div>
 </div>
@@ -59,7 +59,7 @@
 
     private string StatusLabel => Controller.IsRunning ? "Running" : "Stopped";
 
-    private string StatusBadgeClass => Controller.IsRunning ? "badge bg-success" : "badge bg-secondary";
+    private string StatusBadgeClass => Controller.IsRunning ? "status-pill status-pill--live" : "status-pill status-pill--idle";
 
     private async Task ToggleAsync()
     {

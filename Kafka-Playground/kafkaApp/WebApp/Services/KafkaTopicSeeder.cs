@@ -14,13 +14,11 @@ namespace WebApp.Services;
 public sealed class KafkaTopicSeeder : IHostedService
 {
     private readonly KafkaOptions _options;
-    private readonly CityCatalog _cityCatalog;
     private readonly ILogger<KafkaTopicSeeder> _logger;
 
-    public KafkaTopicSeeder(KafkaOptions options, CityCatalog cityCatalog, ILogger<KafkaTopicSeeder> logger)
+    public KafkaTopicSeeder(KafkaOptions options, ILogger<KafkaTopicSeeder> logger)
     {
         _options = options;
-        _cityCatalog = cityCatalog;
         _logger = logger;
     }
 
@@ -45,17 +43,13 @@ public sealed class KafkaTopicSeeder : IHostedService
 
     private async Task EnsureTopicsAsync(CancellationToken cancellationToken)
     {
+        // Only ensure the core topics still in active use. Per-city raw topics were deprecated.
         var expectedTopics = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             _options.VotesTopic,
             _options.TotalsTopic,
             _options.VotesByCityTopic
         };
-
-        foreach (var city in _cityCatalog.Cities)
-        {
-            expectedTopics.Add(city.TopicName);
-        }
 
         if (expectedTopics.Count == 0)
         {

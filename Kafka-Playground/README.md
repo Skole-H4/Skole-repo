@@ -6,13 +6,15 @@ Includes:
 - Kafka 4.0.1 in **KRaft** (no ZooKeeper), single-node
 - Kafka UI (http://localhost:8080)
 - Schema Registry (http://localhost:8081)
-- Kafka Connect (http://localhost:8083)
+- Kafka Connect (http://localhost:8083) with the Confluent JDBC sink + Microsoft SQL Server driver baked in
 - One-shot topic bootstrap (`demo`, `deadletter`)
 
 ## Quick start
 
+docker compose up -d
 ```bash
 unzip kafka-playground-apache.zip && cd kafka-playground-apache
+docker compose build connect          # ensures JDBC sink plugin + MSSQL driver present
 docker compose up -d
 ```
 

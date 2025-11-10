@@ -1,19 +1,32 @@
-﻿@inherits LayoutComponentBase
+﻿@using WebApp.Components.Layout
+@inherits LayoutComponentBase
 
 <div class="page">
-    <div class="sidebar">
+    <aside class="sidebar">
         <NavMenu />
+    </aside>
+
+    <div class="main-surface">
+        <header class="top-row">
+            <div class="top-row__info">
+                <span class="top-row__kicker">PulseVote control</span>
+                <span class="top-row__headline">Kafka vote stream</span>
+            </div>
+            <div class="top-row__actions">
+                <span class="status-pill status-pill--calm">
+                    <span class="status-pill__dot" aria-hidden="true"></span>
+                    Systems nominal
+                </span>
+                <a href="https://learn.microsoft.com/aspnet/core/" target="_blank" rel="noopener" class="top-row__link">Docs</a>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <article class="content">
+                @Body
+            </article>
+        </main>
     </div>
-
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
-
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
 </div>
 
 <div id="blazor-error-ui">

@@ -11,140 +11,130 @@
 @using WebApp.Services
 @implements IDisposable
 
-<div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
+<section class="page-header">
     <div>
-        <h3 class="mb-0">Live Dashboard</h3>
-        <p class="text-muted mb-0">Real-time overview of simulated votes</p>
+        <h1 class="page-title">Live dashboard</h1>
+        <p class="page-subtitle">Real-time overview of simulated votes.</p>
     </div>
-    <span class="badge text-bg-success px-3 py-2 shadow-sm">Live updating</span>
-</div>
+    <span class="status-pill status-pill--live">
+        <span class="status-pill__dot" aria-hidden="true"></span>
+        Live feed
+    </span>
+</section>
 
-<div class="row g-3 mb-4">
-    <div class="col-12 col-md-4">
-        <div class="dashboard-card h-100 border-0 shadow-sm">
-            <div class="card-body">
-                <p class="card-subtitle text-uppercase small text-white-50">Total votes</p>
-                <h2 class="display-6 fw-semibold text-white">@OverallTotal.ToString("N0")</h2>
-            </div>
-        </div>
-    </div>
-    <div class="col-12 col-md-4">
-        <div class="dashboard-card h-100 border-0 shadow-sm">
-            <div class="card-body">
-                <p class="card-subtitle text-uppercase small text-white-50">Leading party</p>
-                @if (LeadingParty is not null)
-                {
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="badge bg-light text-dark fs-5">@LeadingParty.PartyLetter</span>
-                        <div>
-                            <h5 class="mb-0 text-white">@LeadingParty.RealPartyName</h5>
-                            <span class="text-white-50">@GetShareText(LeadingParty.PartyLetter)</span>
-                        </div>
-                    </div>
-                }
-                else
-                {
-                    <p class="text-white mb-0">No votes yet</p>
-                }
-            </div>
-        </div>
-    </div>
-    <div class="col-12 col-md-4">
-        <div class="dashboard-card h-100 border-0 shadow-sm">
-            <div class="card-body">
-                <p class="card-subtitle text-uppercase small text-white-50">Active cities</p>
-                <h2 class="display-6 fw-semibold text-white">@ActiveCityCount</h2>
-                <p class="mb-0 text-white-50">Cities currently reporting votes</p>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="card shadow-sm border-0 mb-4">
-    <div class="card-body">
-        <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
-            <h5 class="card-title mb-0">Party distribution</h5>
-            <span class="text-muted">Updated @GetLatestUpdateText()</span>
-        </div>
-        @if (_partyOrder.Length == 0)
+<section class="stat-grid">
+    <article class="glass-card panel stat-card">
+        <span class="stat-label">Total votes</span>
+        <span class="stat-value">@OverallTotal.ToString("N0")</span>
+    </article>
+    <article class="glass-card panel stat-card">
+        <span class="stat-label">Leading party</span>
+        @if (LeadingParty is not null)
         {
-            <p class="text-muted mb-0">No party data available.</p>
-        }
-        else if (OverallTotal == 0)
-        {
-            <p class="text-muted mb-0">No votes registered yet.</p>
+            <div class="stat-leading">
+                <span class="stat-leading__badge">@LeadingParty.PartyLetter</span>
+                <div>
+                    <span class="stat-leading__name">@LeadingParty.RealPartyName</span>
+                    <span class="stat-leading__share">@GetShareText(LeadingParty.PartyLetter)</span>
+                </div>
+            </div>
         }
         else
         {
+            <span class="stat-empty">No votes yet</span>
+        }
+    </article>
+    <article class="glass-card panel stat-card">
+        <span class="stat-label">Active cities</span>
+        <span class="stat-value">@ActiveCityCount</span>
+        <span class="stat-caption">Cities currently reporting votes</span>
+    </article>
+</section>
+
+<section class="glass-card panel">
+    <header class="panel-header panel-header--between">
+        <div>
+            <h2 class="panel-title">Party distribution</h2>
+            <p class="panel-subtitle">Updated @GetLatestUpdateText()</p>
+        </div>
+    </header>
+    @if (_partyOrder.Length == 0)
+    {
+        <p class="empty-state">No party data available.</p>
+    }
+    else if (OverallTotal == 0)
+    {
+        <p class="empty-state">No votes registered yet.</p>
+    }
+    else
+    {
+        <div class="bar-list">
             @foreach (var party in _partyOrder)
             {
                 var count = GetTotalForParty(party.PartyLetter);
                 var share = GetShare(party.PartyLetter);
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="badge bg-primary-subtle text-primary-emphasis">@party.PartyLetter</span>
-                            <span class="fw-semibold">@party.RealPartyName</span>
-                        </div>
-                        <span class="text-muted">@count.ToString("N0") votes</span>
+                <div class="bar-list__item">
+                    <div class="bar-list__meta">
+                        <span class="bar-list__badge">@party.PartyLetter</span>
+                        <span class="bar-list__name">@party.RealPartyName</span>
+                        <span class="bar-list__count">@count.ToString("N0") votes</span>
                     </div>
-                    <div class="progress progress-thin">
-                        <div class="progress-bar" role="progressbar" style="width: @share.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)%" aria-valuenow="@share" aria-valuemin="0" aria-valuemax="100">
-                        </div>
+                    <div class="bar-list__track">
+                        <div class="bar-list__fill" style="width: @share.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)%"></div>
                     </div>
                 </div>
             }
-        }
-    </div>
-</div>
-
-<div class="card shadow-sm border-0">
-    <div class="card-body">
-        <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
-            <h5 class="card-title mb-0">City breakdown</h5>
-            <span class="text-muted">Totals per city and party</span>
         </div>
-        @if (_citySnapshots.Count == 0)
-        {
-            <p class="text-muted mb-0">No city votes reported yet.</p>
-        }
-        else
-        {
-            <div class="table-responsive">
-                <table class="table table-hover align-middle">
-                    <thead class="table-light">
+    }
+</section>
+
+<section class="glass-card panel">
+    <header class="panel-header panel-header--between">
+        <div>
+            <h2 class="panel-title">City breakdown</h2>
+            <p class="panel-subtitle">Totals per city and party</p>
+        </div>
+    </header>
+    @if (_citySnapshots.Count == 0)
+    {
+        <p class="empty-state">No city votes reported yet.</p>
+    }
+    else
+    {
+        <div class="table-frame">
+            <table class="data-table data-table--hover">
+                <thead>
+                    <tr>
+                        <th scope="col">Zip</th>
+                        <th scope="col">City</th>
+                        @foreach (var party in _partyOrder)
+                        {
+                            <th scope="col" class="u-text-end">@party.PartyLetter</th>
+                        }
+                        <th scope="col" class="u-text-end">Total</th>
+                        <th scope="col" class="u-text-end">Updated</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var snapshot in _citySnapshots)
+                    {
                         <tr>
-                            <th scope="col">Zip</th>
-                            <th scope="col">City</th>
+                            <td>@(snapshot.ZipCode <= 0 ? "—" : snapshot.ZipCode.ToString())</td>
+                            <td>@snapshot.City</td>
                             @foreach (var party in _partyOrder)
                             {
-                                <th scope="col" class="text-end">@party.PartyLetter</th>
+                                var partyCount = GetCityPartyCount(snapshot, party.PartyLetter);
+                                <td class="u-text-end">@partyCount.ToString("N0")</td>
                             }
-                            <th scope="col" class="text-end">Total</th>
-                            <th scope="col" class="text-end">Updated</th>
+                            <td class="u-text-end u-strong">@snapshot.TotalVotes.ToString("N0")</td>
+                            <td class="u-text-end u-soft">@snapshot.UpdatedAt.ToLocalTime().ToString("T")</td>
                         </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var snapshot in _citySnapshots)
-                        {
-                            <tr>
-                                <td>@(snapshot.ZipCode <= 0 ? "—" : snapshot.ZipCode.ToString())</td>
-                                <td>@snapshot.City</td>
-                                @foreach (var party in _partyOrder)
-                                {
-                                    var partyCount = GetCityPartyCount(snapshot, party.PartyLetter);
-                                    <td class="text-end">@partyCount.ToString("N0")</td>
-                                }
-                                <td class="text-end fw-semibold">@snapshot.TotalVotes.ToString("N0")</td>
-                                <td class="text-end text-muted">@snapshot.UpdatedAt.ToLocalTime().ToString("T")</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-    </div>
-</div>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
 
 @code {
     private readonly Dictionary<string, int> _totals = new(StringComparer.OrdinalIgnoreCase);

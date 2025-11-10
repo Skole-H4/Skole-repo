@@ -1,3 +1,19 @@
+// -------------------------------------------------------------------------------------------------
+// WebApp entrypoint and service wiring
+//
+// Responsibilities:
+// 1. Configure Kafka producer and schema registry client.
+// 2. Register in-memory stores for vote totals and city-level breakdowns.
+// 3. Expose minimal API endpoints for interacting with the vote stream.
+// 4. Host background consumers that keep UI state updated in real time.
+// 5. Provide utilities for resolving target city topics and constructing message keys.
+//
+// Notes:
+// - All Kafka interaction uses strongly typed JSON (Schema Registry) for envelope and tally records.
+// - City auto vote simulation is managed through CityAutoVoteManager and controllers per city.
+// - Minimal APIs return JSON payloads; error handling favors concise validation messages.
+// - Background consumers run on a Task to allow cooperative cancellation with ASP.NET host shutdown.
+// -------------------------------------------------------------------------------------------------
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,11 +28,14 @@ using WebApp.Configuration;
 using WebApp.Models;
 using WebApp.Services;
 
+// Create the web application builder (configuration + DI root)
 var builder = WebApplication.CreateBuilder(args);
 
+// Bind Kafka options section and expose the concrete instance for easy injection.
 builder.Services.Configure<KafkaOptions>(builder.Configuration.GetSection("Kafka"));
-builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<KafkaOptions>>().Value);
+builder.Services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<KafkaOptions>>().Value);
 
+// Shared HttpClient factory for internal API calls (used by UI components to call endpoints).
 builder.Services.AddHttpClient();
 
 // Shared metadata and live in-memory state keyed by vote option with change notifications
@@ -25,33 +44,35 @@ builder.Services.AddSingleton<CityCatalog>();
 builder.Services.AddSingleton<VoteTotalsStore>();
 builder.Services.AddSingleton<CityVoteStore>();
 
-builder.Services.AddSingleton<ISchemaRegistryClient>(sp =>
+// Schema Registry client for JSON serialization of typed messages.
+builder.Services.AddSingleton<ISchemaRegistryClient>(serviceProvider =>
 {
-    var options = sp.GetRequiredService<KafkaOptions>();
+    var kafkaOptions = serviceProvider.GetRequiredService<KafkaOptions>();
     return new CachedSchemaRegistryClient(new SchemaRegistryConfig
     {
-        Url = options.SchemaRegistryUrl
+        Url = kafkaOptions.SchemaRegistryUrl
     });
 });
 
-builder.Services.AddSingleton<IProducer<string, VoteEnvelope>>(sp =>
+// High reliability producer for vote envelopes (idempotent + fully acknowledged).
+builder.Services.AddSingleton<IProducer<string, VoteEnvelope>>(serviceProvider =>
 {
-    var options = sp.GetRequiredService<KafkaOptions>();
+    var kafkaOptions = serviceProvider.GetRequiredService<KafkaOptions>();
     var producerConfig = new ProducerConfig
     {
-        BootstrapServers = options.BootstrapServers,
-        Acks = Acks.All,
-        EnableIdempotence = true,
-        LingerMs = 5,
-        BatchSize = 64_000
+        BootstrapServers = kafkaOptions.BootstrapServers,
+        Acks = Acks.All, // ensure replication before acknowledging
+        EnableIdempotence = true, // guarantees ordering and deduplication on retries
+        LingerMs = 5, // small batching window to reduce network overhead
+        BatchSize = 64_000 // moderate batch size tuned for envelope payload structure
     };
 
-    var schemaClient = sp.GetRequiredService<ISchemaRegistryClient>();
+    var schemaRegistryClient = serviceProvider.GetRequiredService<ISchemaRegistryClient>();
 
     return new ProducerBuilder<string, VoteEnvelope>(producerConfig)
-        .SetValueSerializer(new JsonSerializer<VoteEnvelope>(schemaClient, new JsonSerializerConfig
+        .SetValueSerializer(new JsonSerializer<VoteEnvelope>(schemaRegistryClient, new JsonSerializerConfig
         {
-            AutoRegisterSchemas = true
+            AutoRegisterSchemas = true // simplify development; production could use pre-registration
         }))
         .Build();
 });
@@ -62,8 +83,11 @@ builder.Services.AddHostedService<TotalsConsumer>();
 builder.Services.AddHostedService<CityVotesConsumer>();
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
-
+    .AddInteractiveServerComponents(options =>
+    {
+        options.DetailedErrors = true;
+    });
+// Build the application (finalize DI service provider)
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -81,65 +105,72 @@ app.UseAntiforgery();
 app.MapGet("/api/totals", (VoteTotalsStore store) => Results.Json(store.GetSnapshot()));
 app.MapGet("/api/cities", (CityVoteStore store) => Results.Json(store.GetSnapshot()));
 
-app.MapPost("/api/vote", async (VoteRequest request, CityCatalog catalog, PartyCatalog partyCatalog, IProducer<string, VoteEnvelope> producer, KafkaOptions kafkaOptions) =>
+// Enqueue a vote into Kafka, optionally targeting one or more city topics.
+app.MapPost("/api/vote", async (VoteRequest request,
+                                 CityCatalog cityCatalog,
+                                 PartyCatalog partyCatalog,
+                                 IProducer<string, VoteEnvelope> voteProducer,
+                                 KafkaOptions kafkaOptions) =>
 {
-    if (string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.Option))
+    // Basic validation for required fields (only option now; UserId is generated server-side).
+    if (string.IsNullOrWhiteSpace(request.Option))
     {
-        return Results.BadRequest("UserId and Option are required.");
+        return Results.BadRequest("Option is required.");
     }
 
-    var option = request.Option.Trim().ToUpperInvariant();
-    if (!partyCatalog.TryGetByLetter(option, out _))
+    var normalizedOption = request.Option.Trim().ToUpperInvariant();
+    if (!partyCatalog.TryGetByLetter(normalizedOption, out _))
     {
-        return Results.BadRequest($"Unknown option '{option}'.");
+        return Results.BadRequest($"Unknown option '{normalizedOption}'.");
     }
 
-    var vote = new VoteEvent
+    var voteEvent = new VoteEvent
     {
-        UserId = request.UserId,
-        Option = option,
+        UserId = Guid.NewGuid(),
+        Option = normalizedOption,
         Timestamp = DateTimeOffset.UtcNow
     };
 
-    var targets = ResolveTargets(request.TargetTopics, catalog);
-    var results = new List<object>(targets.Count == 0 ? 1 : targets.Count);
+    var targetCities = ResolveTargets(request.TargetTopics, cityCatalog);
+    var deliveryResults = new List<object>(targetCities.Count == 0 ? 1 : targetCities.Count);
 
-    if (targets.Count == 0)
+    // If no city targets specified, produce a single globla vote.
+    if (targetCities.Count == 0)
     {
-        var envelope = CreateEnvelope(vote, null);
-        var delivery = await producer.ProduceAsync(kafkaOptions.VotesTopic, new Message<string, VoteEnvelope>
+        var globalEnvelope = CreateEnvelope(voteEvent, null);
+        var globalDelivery = await voteProducer.ProduceAsync(kafkaOptions.VotesTopic, new Message<string, VoteEnvelope>
         {
-            Key = BuildMessageKey(null, option),
-            Value = envelope
+            Key = BuildMessageKey(null, normalizedOption),
+            Value = globalEnvelope
         });
 
-        results.Add(new
+        deliveryResults.Add(new
         {
             topic = kafkaOptions.VotesTopic,
-            partition = delivery.Partition.Value,
-            offset = delivery.Offset.Value,
-            city = envelope.City,
-            zip = envelope.ZipCode
+            partition = globalDelivery.Partition.Value,
+            offset = globalDelivery.Offset.Value,
+            city = globalEnvelope.City,
+            zip = globalEnvelope.ZipCode
         });
     }
     else
     {
-        foreach (var city in targets)
+        foreach (var cityTopic in targetCities)
         {
-            var envelope = CreateEnvelope(vote, city);
-            var delivery = await producer.ProduceAsync(kafkaOptions.VotesTopic, new Message<string, VoteEnvelope>
+            var targetedEnvelope = CreateEnvelope(voteEvent, cityTopic);
+            var targetedDelivery = await voteProducer.ProduceAsync(kafkaOptions.VotesTopic, new Message<string, VoteEnvelope>
             {
-                Key = BuildMessageKey(city.ZipCode, option),
-                Value = envelope
+                Key = BuildMessageKey(cityTopic.ZipCode, normalizedOption),
+                Value = targetedEnvelope
             });
 
-            results.Add(new
+            deliveryResults.Add(new
             {
                 topic = kafkaOptions.VotesTopic,
-                partition = delivery.Partition.Value,
-                offset = delivery.Offset.Value,
-                city = envelope.City,
-                zip = envelope.ZipCode
+                partition = targetedDelivery.Partition.Value,
+                offset = targetedDelivery.Offset.Value,
+                city = targetedEnvelope.City,
+                zip = targetedEnvelope.ZipCode
             });
         }
     }
@@ -147,7 +178,7 @@ app.MapPost("/api/vote", async (VoteRequest request, CityCatalog catalog, PartyC
     return Results.Ok(new
     {
         status = "queued",
-        deliveries = results
+        deliveries = deliveryResults
     });
 });
 
@@ -208,30 +239,44 @@ app.MapRazorComponents<App>()
 
 app.Run();
 
+/// <summary>
+/// Resolve a collection of raw identifiers (city name, ASCII variant, topic name or zip code)
+/// into distinct <see cref="CityTopic"/> instances using catalog lookups.
+/// </summary>
+/// <param name="requested">Raw identifiers supplied by caller (may be null or contain blanks).</param>
+/// <param name="catalog">The city catalog used for resolution.</param>
+/// <returns>Distinct resolved city topics, or empty list if none match.</returns>
 static List<CityTopic> ResolveTargets(IEnumerable<string>? requested, CityCatalog catalog)
 {
-    var results = new HashSet<CityTopic>(CityTopicComparer.Instance);
+    var uniqueResults = new HashSet<CityTopic>(CityTopicComparer.Instance);
 
     if (requested is not null)
     {
-        foreach (var entry in requested)
+        foreach (var rawEntry in requested)
         {
-            var value = entry?.Trim();
-            if (string.IsNullOrEmpty(value))
+            var trimmedValue = rawEntry?.Trim();
+            if (string.IsNullOrEmpty(trimmedValue))
             {
                 continue;
             }
 
-            if (catalog.TryResolve(value, out var city) && city is not null)
+            if (catalog.TryResolve(trimmedValue, out var resolvedCity) && resolvedCity is not null)
             {
-                results.Add(city);
+                uniqueResults.Add(resolvedCity);
             }
         }
     }
 
-    return results.ToList();
+    return uniqueResults.ToList();
 }
 
+/// <summary>
+/// Constructs a Kafka message key combining either a global scope or a zip code with the vote option.
+/// Keys are used to aid partitioning and potential compaction by option within a locality.
+/// </summary>
+/// <param name="zipCode">Optional zip code; if null a global prefix is used.</param>
+/// <param name="option">Normalized vote option (upper case).</param>
+/// <returns>Canonical key format "GLOBAL|OPTION" or "ZIP|OPTION".</returns>
 static string BuildMessageKey(int? zipCode, string option)
 {
     return zipCode.HasValue
@@ -239,6 +284,12 @@ static string BuildMessageKey(int? zipCode, string option)
         : string.Concat("GLOBAL|", option);
 }
 
+/// <summary>
+/// Creates a strongly typed vote envelope optionally bound to a city context.
+/// </summary>
+/// <param name="vote">The underlying vote event.</param>
+/// <param name="city">Optional city metadata.</param>
+/// <returns>Populated envelope ready for Kafka serialization.</returns>
 static VoteEnvelope CreateEnvelope(VoteEvent vote, CityTopic? city)
 {
     return new VoteEnvelope
@@ -250,6 +301,10 @@ static VoteEnvelope CreateEnvelope(VoteEvent vote, CityTopic? city)
     };
 }
 
+/// <summary>
+/// Equality comparer for <see cref="CityTopic"/> based on topic name (case-insensitive).
+/// Used to enforce uniqueness when merging resolved city identifiers.
+/// </summary>
 sealed class CityTopicComparer : IEqualityComparer<CityTopic>
 {
     public static CityTopicComparer Instance { get; } = new();
@@ -273,17 +328,20 @@ sealed class CityTopicComparer : IEqualityComparer<CityTopic>
         => StringComparer.OrdinalIgnoreCase.GetHashCode(obj.TopicName);
 }
 
+/// <summary>
+/// Background consumer that maintains in-memory global vote totals by consuming the compacted totals topic.
+/// </summary>
 sealed class TotalsConsumer : BackgroundService
 {
-    private readonly VoteTotalsStore _store;
+    private readonly VoteTotalsStore _voteTotalsStore;
     private readonly ISchemaRegistryClient _schemaRegistryClient;
-    private readonly KafkaOptions _options;
+    private readonly KafkaOptions _kafkaOptions;
 
-    public TotalsConsumer(VoteTotalsStore store, ISchemaRegistryClient schemaRegistryClient, KafkaOptions options)
+    public TotalsConsumer(VoteTotalsStore voteTotalsStore, ISchemaRegistryClient schemaRegistryClient, KafkaOptions kafkaOptions)
     {
-        _store = store;
+        _voteTotalsStore = voteTotalsStore;
         _schemaRegistryClient = schemaRegistryClient;
-        _options = options;
+        _kafkaOptions = kafkaOptions;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -291,33 +349,33 @@ sealed class TotalsConsumer : BackgroundService
         // Offload loop to long-running task so BackgroundService can manage cancellation cleanly.
         return Task.Run(() =>
         {
-            var config = new ConsumerConfig
+            var consumerConfig = new ConsumerConfig
             {
-                BootstrapServers = _options.BootstrapServers,
-                GroupId = _options.UiTotalsGroupId ?? "webapp-totals-ui",
+                BootstrapServers = _kafkaOptions.BootstrapServers,
+                GroupId = _kafkaOptions.UiTotalsGroupId ?? "webapp-totals-ui",
                 AutoOffsetReset = AutoOffsetReset.Earliest,
                 EnableAutoCommit = true,
                 IsolationLevel = IsolationLevel.ReadCommitted
             };
 
-            config.Set("socket.keepalive.enable", "true");
-            config.Set("debug", "broker,protocol,security");
-            config.Set("broker.address.family", "v4");
+            consumerConfig.Set("socket.keepalive.enable", "true");
+            consumerConfig.Set("debug", "broker,protocol,security");
+            consumerConfig.Set("broker.address.family", "v4");
 
-            using var consumer = new ConsumerBuilder<string, VoteTotal>(config)
+            using var consumer = new ConsumerBuilder<string, VoteTotal>(consumerConfig)
                 .SetValueDeserializer(new JsonDeserializer<VoteTotal>(_schemaRegistryClient).AsSyncOverAsync())
                 .Build();
 
-            consumer.Subscribe(_options.TotalsTopic);
+            consumer.Subscribe(_kafkaOptions.TotalsTopic);
 
             try
             {
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    var result = consumer.Consume(stoppingToken);
-                    if (result?.Message?.Value is { } total && !string.IsNullOrWhiteSpace(total.Option))
+                    var consumeResult = consumer.Consume(stoppingToken);
+                    if (consumeResult?.Message?.Value is { } totalRecord && !string.IsNullOrWhiteSpace(totalRecord.Option))
                     {
-                        _store.SetTotal(total.Option, total.Count);
+                        _voteTotalsStore.SetTotal(totalRecord.Option, totalRecord.Count);
                     }
                 }
             }
@@ -340,50 +398,53 @@ sealed class TotalsConsumer : BackgroundService
     }
 }
 
+/// <summary>
+/// Background consumer that maintains in-memory per-city vote distributions by consuming the city totals topic.
+/// </summary>
 sealed class CityVotesConsumer : BackgroundService
 {
-    private readonly CityVoteStore _store;
+    private readonly CityVoteStore _cityVoteStore;
     private readonly ISchemaRegistryClient _schemaRegistryClient;
-    private readonly KafkaOptions _options;
+    private readonly KafkaOptions _kafkaOptions;
 
-    public CityVotesConsumer(CityVoteStore store, ISchemaRegistryClient schemaRegistryClient, KafkaOptions options)
+    public CityVotesConsumer(CityVoteStore cityVoteStore, ISchemaRegistryClient schemaRegistryClient, KafkaOptions kafkaOptions)
     {
-        _store = store;
+        _cityVoteStore = cityVoteStore;
         _schemaRegistryClient = schemaRegistryClient;
-        _options = options;
+        _kafkaOptions = kafkaOptions;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
         return Task.Run(() =>
         {
-            var config = new ConsumerConfig
+            var consumerConfig = new ConsumerConfig
             {
-                BootstrapServers = _options.BootstrapServers,
-                GroupId = _options.UiCityGroupId ?? "webapp-city-metrics",
+                BootstrapServers = _kafkaOptions.BootstrapServers,
+                GroupId = _kafkaOptions.UiCityGroupId ?? "webapp-city-metrics",
                 AutoOffsetReset = AutoOffsetReset.Earliest,
                 EnableAutoCommit = true,
                 IsolationLevel = IsolationLevel.ReadCommitted
             };
 
-            config.Set("socket.keepalive.enable", "true");
-            config.Set("debug", "broker,protocol,security");
-            config.Set("broker.address.family", "v4");
+            consumerConfig.Set("socket.keepalive.enable", "true");
+            consumerConfig.Set("debug", "broker,protocol,security");
+            consumerConfig.Set("broker.address.family", "v4");
 
-            using var consumer = new ConsumerBuilder<string, VoteTotal>(config)
+            using var consumer = new ConsumerBuilder<string, VoteTotal>(consumerConfig)
                 .SetValueDeserializer(new JsonDeserializer<VoteTotal>(_schemaRegistryClient).AsSyncOverAsync())
                 .Build();
 
-            consumer.Subscribe(_options.VotesByCityTopic);
+            consumer.Subscribe(_kafkaOptions.VotesByCityTopic);
 
             try
             {
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    var result = consumer.Consume(stoppingToken);
-                    if (result?.Message?.Value is { } total && !string.IsNullOrWhiteSpace(total.Option))
+                    var consumeResult = consumer.Consume(stoppingToken);
+                    if (consumeResult?.Message?.Value is { } totalRecord && !string.IsNullOrWhiteSpace(totalRecord.Option))
                     {
-                        _store.SetCityVote(total);
+                        _cityVoteStore.SetCityVote(totalRecord);
                     }
                 }
             }
