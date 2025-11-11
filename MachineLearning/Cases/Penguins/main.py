@@ -4,6 +4,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from heapq import heappush, heapreplace, nlargest
 from multiprocessing import cpu_count
@@ -13,17 +14,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import joblib
 from sklearn.metrics import (
 	ConfusionMatrixDisplay,
 	classification_report,
 	confusion_matrix,
 )
-from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.model_selection import cross_val_score, train_test_split, learning_curve
+from sklearn.inspection import permutation_importance
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
 
 
-DEFAULT_RANDOM_STATES = 1_000_000
+DEFAULT_RANDOM_STATES = 5_000
 BATCH_SIZE = 500
 TOP_K = 3
 
@@ -102,8 +105,18 @@ def _train_and_report(
 	y: pd.Series,
 	random_state: int,
 	model_factory: Callable[[], Any],
-) -> tuple[float, str, np.ndarray, pd.Series, np.ndarray]:
-	"""Train the provided model factory and compute evaluation artifacts."""
+) -> tuple[float, str, np.ndarray, pd.Series, np.ndarray, Any]:
+	"""Train the provided model factory and compute evaluation artifacts.
+
+	Returns
+	-------
+	accuracy: float
+	report_text: str
+	confusion_matrix: np.ndarray
+	y_test: pd.Series
+	y_pred: np.ndarray
+	model: fitted estimator instance
+	"""
 
 	X_train, X_test, y_train, y_test = train_test_split(
 		X, y, test_size=0.2, random_state=random_state, stratify=y
@@ -113,7 +126,7 @@ def _train_and_report(
 	accuracy = float(model.score(X_test, y_test))
 	report_text = str(classification_report(y_test, y_pred))
 	matrix = confusion_matrix(y_test, y_pred)
-	return accuracy, report_text, matrix, y_test, y_pred
+	return accuracy, report_text, matrix, y_test, y_pred, model
 
 
 def main() -> None:
@@ -273,7 +286,7 @@ def main() -> None:
 	best_knn_seed = knn_top[0]["random_state"]
 
 	print(f"\nBest decision tree random_state: {best_tree_seed}")
-	tree_accuracy, tree_report, tree_matrix, tree_y_test, tree_y_pred = _train_and_report(
+	tree_accuracy, tree_report, tree_matrix, tree_y_test, tree_y_pred, tree_model = _train_and_report(
 		X_df,
 		y_series,
 		best_tree_seed,
@@ -285,7 +298,7 @@ def main() -> None:
 	print(tree_report)
 
 	print(f"Best k-NN random_state: {best_knn_seed}")
-	knn_accuracy, knn_report, knn_matrix, knn_y_test, knn_y_pred = _train_and_report(
+	knn_accuracy, knn_report, knn_matrix, knn_y_test, knn_y_pred, _knn_model = _train_and_report(
 		X_df,
 		y_series,
 		best_knn_seed,
@@ -322,7 +335,58 @@ def main() -> None:
 		f"mean={knn_cv_scores.mean():.2%}, std={knn_cv_scores.std():.2%}"
 	)
 
+	# --- Feature importance (impurity-based) for decision tree ---
+	if hasattr(tree_model, "feature_importances_"):
+		importances = tree_model.feature_importances_
+		importance_df = (
+			pd.DataFrame({"feature": X_df.columns, "importance": importances})
+			.sort_values("importance", ascending=False)
+		)
+		print("\nDecision Tree Feature Importances (impurity-based):")
+		for _, row in importance_df.iterrows():
+			print(f"  {row['feature']:<20} {row['importance']:.4f}")
+
+		# Permutation importance gives a more robust view of generalization impact
+		perm = permutation_importance(
+			tree_model,
+			X_df,
+			y_series,
+			n_repeats=10,
+			random_state=best_tree_seed,
+			n_jobs=-1,
+		)
+		perm_df = (
+			pd.DataFrame(
+				{
+					"feature": X_df.columns,
+					"perm_mean": perm.importances_mean,
+					"perm_std": perm.importances_std,
+				}
+			)
+			.sort_values("perm_mean", ascending=False)
+		)
+		print("\nDecision Tree Permutation Importances:")
+		for _, row in perm_df.iterrows():
+			print(
+				f"  {row['feature']:<20} mean={row['perm_mean']:.4f} std={row['perm_std']:.4f}"
+			)
+
 	class_labels = np.unique(y_series)
+
+	# --- Visualize feature importances ---
+	if 'importance_df' in locals() and 'perm_df' in locals():
+		fig_imp, axes_imp = plt.subplots(1, 2, figsize=(12, 4))
+		# Impurity-based
+		axes_imp[0].bar(importance_df['feature'], importance_df['importance'], color='tab:blue')
+		axes_imp[0].set_title('Decision Tree Impurity Importances')
+		axes_imp[0].set_ylabel('Importance (Gini decrease)')
+		axes_imp[0].tick_params(axis='x', rotation=45)
+		# Permutation-based
+		axes_imp[1].bar(perm_df['feature'], perm_df['perm_mean'], yerr=perm_df['perm_std'], color='tab:orange', alpha=0.85, capsize=4)
+		axes_imp[1].set_title('Decision Tree Permutation Importances')
+		axes_imp[1].set_ylabel('Mean decrease in accuracy')
+		axes_imp[1].tick_params(axis='x', rotation=45)
+		fig_imp.tight_layout()
 	fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 	ConfusionMatrixDisplay.from_predictions(
 		tree_y_test,
@@ -342,6 +406,90 @@ def main() -> None:
 
 	fig.suptitle("Confusion Matrices for Best Seeds")
 	fig.tight_layout()
+
+	# --- Learning curve for decision tree model using best seed ---
+	tree_estimator = DecisionTreeClassifier(
+		max_depth=5,
+		min_samples_split=2,
+		min_samples_leaf=1,
+		random_state=best_tree_seed,
+	)
+	train_sizes, tree_train_scores, tree_val_scores = learning_curve(
+		tree_estimator,
+		X_df,
+		y_series,
+		cv=5,
+		n_jobs=-1,
+		train_sizes=np.linspace(0.1, 1.0, 8),
+	)
+
+	tree_train_mean = tree_train_scores.mean(axis=1)
+	tree_train_std = tree_train_scores.std(axis=1)
+	tree_val_mean = tree_val_scores.mean(axis=1)
+	tree_val_std = tree_val_scores.std(axis=1)
+
+	# --- Learning curve for k-NN model using best seed ---
+	knn_estimator = KNeighborsClassifier(n_neighbors=5)
+	_, knn_train_scores, knn_val_scores = learning_curve(
+		knn_estimator,
+		X_df,
+		y_series,
+		cv=5,
+		n_jobs=-1,
+		train_sizes=train_sizes,  # reuse same sizes for alignment
+	)
+	knn_train_mean = knn_train_scores.mean(axis=1)
+	knn_train_std = knn_train_scores.std(axis=1)
+	knn_val_mean = knn_val_scores.mean(axis=1)
+	knn_val_std = knn_val_scores.std(axis=1)
+
+	fig_lc, axes_lc = plt.subplots(1, 2, figsize=(12, 4))
+
+	# Decision Tree curve
+	ax_tree = axes_lc[0]
+	ax_tree.set_title("Decision Tree Learning Curve")
+	ax_tree.set_xlabel("Training examples")
+	ax_tree.set_ylabel("Accuracy")
+	ax_tree.grid(alpha=0.3)
+	ax_tree.fill_between(train_sizes, tree_train_mean - tree_train_std, tree_train_mean + tree_train_std, alpha=0.15, color="tab:blue")
+	ax_tree.fill_between(train_sizes, tree_val_mean - tree_val_std, tree_val_mean + tree_val_std, alpha=0.15, color="tab:orange")
+	ax_tree.plot(train_sizes, tree_train_mean, "o-", color="tab:blue", label="Train")
+	ax_tree.plot(train_sizes, tree_val_mean, "o-", color="tab:orange", label="Validation")
+	ax_tree.legend(loc="best")
+
+	# k-NN curve
+	ax_knn = axes_lc[1]
+	ax_knn.set_title("k-NN Learning Curve")
+	ax_knn.set_xlabel("Training examples")
+	ax_knn.set_ylabel("Accuracy")
+	ax_knn.grid(alpha=0.3)
+	ax_knn.fill_between(train_sizes, knn_train_mean - knn_train_std, knn_train_mean + knn_train_std, alpha=0.15, color="tab:blue")
+	ax_knn.fill_between(train_sizes, knn_val_mean - knn_val_std, knn_val_mean + knn_val_std, alpha=0.15, color="tab:orange")
+	ax_knn.plot(train_sizes, knn_train_mean, "o-", color="tab:blue", label="Train")
+	ax_knn.plot(train_sizes, knn_val_mean, "o-", color="tab:orange", label="Validation")
+	ax_knn.legend(loc="best")
+
+	fig_lc.suptitle("Learning Curves")
+	fig_lc.tight_layout()
+
+	# --- Persist artifacts: figures and models ---
+	figures_dir = Path("outputs") / "figures"
+	models_dir = Path("outputs") / "models"
+	figures_dir.mkdir(parents=True, exist_ok=True)
+	models_dir.mkdir(parents=True, exist_ok=True)
+
+	# Save confusion matrices figure
+	fig.savefig(figures_dir / "confusion_matrices.png", dpi=150)
+	# Save learning curves figure
+	fig_lc.savefig(figures_dir / "learning_curves.png", dpi=150)
+	# Save feature importances figure if created
+	if 'fig_imp' in locals():
+		fig_imp.savefig(figures_dir / "feature_importances.png", dpi=150)
+
+	# Serialize best models
+	joblib.dump(tree_model, models_dir / f"decision_tree_seed_{best_tree_seed}.joblib")
+	joblib.dump(_knn_model, models_dir / f"knn_seed_{best_knn_seed}.joblib")
+
 	plt.show()
 
 
