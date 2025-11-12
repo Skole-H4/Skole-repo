@@ -225,7 +225,7 @@ def _optimize_logistic_from_split(
 		[
 			("poly", PolynomialFeatures(degree=2, interaction_only=True, include_bias=False)),
 			("scaler", StandardScaler()),
-			("clf", LogisticRegression(solver="saga", max_iter=500_000, tol=1e-5, random_state=random_state)),
+			("clf", LogisticRegression(solver="saga", max_iter=5_000, tol=1e-3, random_state=random_state)),
 		]
 	)
 
