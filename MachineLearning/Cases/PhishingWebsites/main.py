@@ -31,15 +31,7 @@ TARGET_COLUMN = "result"
 TEST_SIZE = 0.2
 RANDOM_STATE = 43
 
-LOGISTIC_PARAM_DESCRIPTIONS_DA = {
-	"clf__C": "Kontrollerer styrken af regularisering; lavere værdi giver mere regularisering og dermed mindre overfitting.",
-	"clf__penalty": "Bestemmer hvilken regulariseringsform der bruges (L1 giver sparsere modeller, L2 giver glattere vægte).",
-	"clf__class_weight": "Balancerer klasserne automatisk for at mindske skævhed i datasættet.",
-	"poly__interaction_only": "Angiver om polynomial-led kun består af interaktioner (uden kvadratiske termer), hvilket kan reducere støj.",
-}
-
 ## Vi bruger én deterministisk split og RandomizedSearchCV med intern parallelisering.
-
 
 def _train_and_report(
 	X: pd.DataFrame,
@@ -86,7 +78,6 @@ def _optimize_logistic(
 	target_names: list[str],
 ) -> dict[str, Any]:
 	"""Perform hyper-parameter tuning and interaction expansion for logistic regression."""
-
 	X_train, X_test, y_train, y_test = train_test_split(
 		X,
 		y,
@@ -115,7 +106,6 @@ def _optimize_logistic(
 		"clf__C": np.logspace(-2, 1, 25),
 		"clf__penalty": ["l1", "l2"],
 		"clf__class_weight": [None, "balanced"],
-		"poly__interaction_only": [True],
 	}
 
 	inner_cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=random_state)
@@ -346,25 +336,16 @@ def main() -> None:
 		X_train, X_test, y_train, y_test, RANDOM_STATE, target_names
 	)
 
-	print("\nLogistisk Regression:")
+	# Gruppér modelleres udskrift med separator
+	print("\nLogistisk Regression (tuned):")
 	print(f"Test accuracy: {logistic_details['test_accuracy']:.2%}")
 	print(logistic_details["report"])
+	desc_mapping = globals().get("LOGISTIC_PARAM_DESCRIPTIONS_DA", {})
 	for k, v in logistic_details["best_params"].items():
-		desc = LOGISTIC_PARAM_DESCRIPTIONS_DA.get(k, "(ingen beskrivelse)")
+		desc = desc_mapping.get(k, "(ingen beskrivelse)")
 		print(f"  {k} = {v} -> {desc}")
 
-	print("\nRandom Forest:")
-	print(f"Test accuracy: {forest_details['test_accuracy']:.2%}")
-	print(forest_details["report"])
-	for k, v in forest_details["best_params"].items():
-		print(f"  {k} = {v}")
-
 	logistic_model: Pipeline = logistic_details["model"]
-	forest_model: RandomForestClassifier = forest_details["model"]
-	## Fjernet gammel seed-sweep blok her.
-
-	logistic_model: Pipeline = logistic_details["model"]
-	forest_model: RandomForestClassifier = forest_details["model"]
 
 	logistic_coeffs: pd.Series | None = None
 	if isinstance(logistic_model, Pipeline):
@@ -382,6 +363,17 @@ def main() -> None:
 			print("Most impactful features (logistic coefficients):")
 			for feature, weight in logistic_coeffs.head(20).items():
 				print(f"  {feature:<40} {weight:+.4f}")
+
+	print("\n============================\n")
+
+	print("Random Forest (tuned):")
+	print(f"Test accuracy: {forest_details['test_accuracy']:.2%}")
+	print(forest_details["report"])
+	for k, v in forest_details["best_params"].items():
+		print(f"  {k} = {v}")
+
+	forest_model: RandomForestClassifier = forest_details["model"]
+
 
 	forest_importances: pd.Series | None = None
 	if hasattr(forest_model, "feature_importances_"):
