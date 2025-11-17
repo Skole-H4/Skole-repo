@@ -21,7 +21,7 @@ from sklearn.metrics import (
 	precision_recall_curve,
 	roc_curve,
 )
-from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split
+from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split, learning_curve
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 
@@ -409,13 +409,22 @@ def main() -> None:
 	fig_feat, axes_feat = plt.subplots(1, 2, figsize=(16, 5))
 
 	if logistic_coeffs is not None:
-		top_logistic = logistic_coeffs.head(15)
-		top_logistic.iloc[::-1].plot.barh(
+		# Select top coefficients by absolute magnitude
+		top_abs = logistic_coeffs.head(15)
+		# Split positives and negatives within this subset
+		pos_part = top_abs[top_abs > 0].sort_values(ascending=False)
+		neg_part = top_abs[top_abs < 0].sort_values(ascending=True)  # most negative to least negative
+		ordered_coeffs = pd.concat([pos_part, neg_part])
+		ordered_coeffs.plot.barh(
 			ax=axes_feat[0],
-			color="tab:blue",
-			title="Logistic Regression (scaled coefficients)",
+			color=["tab:blue" if v > 0 else "tab:orange" for v in ordered_coeffs],
+			title="Logistic Regression (coefficients: + then -)",
 		)
+		# Invert y-axis so first index appears at top
+		axes_feat[0].invert_yaxis()
 		axes_feat[0].set_xlabel("Coefficient weight")
+		axes_feat[0].set_ylabel("Feature")
+		axes_feat[0].axvline(0, color="black", linewidth=0.8)
 	else:
 		axes_feat[0].set_visible(False)
 
@@ -496,6 +505,97 @@ def main() -> None:
 
 	fig_feat.savefig(figures_dir / "feature_signals.png", dpi=150)
 	fig_perf.savefig(figures_dir / "performance_curves.png", dpi=150)
+
+	# Accuracy summary (train vs test for both tuned models)
+	fig_acc, ax_acc = plt.subplots(figsize=(8, 5))
+	bar_labels = ["Logistic Train", "Logistic Test", "Forest Train", "Forest Test"]
+	bar_values = [
+		logistic_details["train_accuracy"],
+		logistic_details["test_accuracy"],
+		forest_details["train_accuracy"],
+		forest_details["test_accuracy"],
+	]
+	colors = ["#1f77b4", "#1f77b4", "#2ca02c", "#2ca02c"]
+	ax_acc.bar(bar_labels, bar_values, color=colors)
+	for i, v in enumerate(bar_values):
+		ax_acc.text(i, v + 0.005, f"{v:.2%}", ha="center", fontsize=9)
+	ax_acc.set_ylim(0, 1.05)
+	ax_acc.set_ylabel("Accuracy")
+	ax_acc.set_title("Train/Test Accuracy (Tuned Models)")
+	ax_acc.tick_params(axis="x", rotation=20)
+	fig_acc.tight_layout()
+	fig_acc.savefig(figures_dir / "accuracy_summary.png", dpi=150)
+
+	# Learning curves for both models (using training portion only to avoid test leakage)
+	fig_lc, axes_lc = plt.subplots(1, 2, figsize=(16, 5))
+	train_sizes = np.linspace(0.1, 1.0, 5)
+	cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+
+	# Logistic Regression learning curve
+	logistic_estimator = logistic_details["model"]
+	log_sizes, log_train_scores, log_valid_scores = learning_curve(
+		logistic_estimator,
+		X_train,
+		y_train,
+		cv=cv,
+		train_sizes=train_sizes,
+		scoring="accuracy",
+		n_jobs=-1,
+	)
+	axes_lc[0].plot(log_sizes, log_train_scores.mean(axis=1), label="Train", marker="o")
+	axes_lc[0].plot(log_sizes, log_valid_scores.mean(axis=1), label="Validation", marker="o")
+	axes_lc[0].fill_between(
+		log_sizes,
+		log_train_scores.mean(axis=1) - log_train_scores.std(axis=1),
+		log_train_scores.mean(axis=1) + log_train_scores.std(axis=1),
+		alpha=0.15,
+	)
+	axes_lc[0].fill_between(
+		log_sizes,
+		log_valid_scores.mean(axis=1) - log_valid_scores.std(axis=1),
+		log_valid_scores.mean(axis=1) + log_valid_scores.std(axis=1),
+		alpha=0.15,
+	)
+	axes_lc[0].set_title("Logistic Regression Learning Curve")
+	axes_lc[0].set_xlabel("Training examples")
+	axes_lc[0].set_ylabel("Accuracy")
+	axes_lc[0].grid(alpha=0.3)
+	axes_lc[0].legend()
+
+	# Random Forest learning curve
+	forest_estimator = forest_details["model"]
+	forest_sizes, forest_train_scores, forest_valid_scores = learning_curve(
+		forest_estimator,
+		X_train,
+		y_train,
+		cv=cv,
+		train_sizes=train_sizes,
+		scoring="accuracy",
+		n_jobs=-1,
+	)
+	axes_lc[1].plot(forest_sizes, forest_train_scores.mean(axis=1), label="Train", marker="o")
+	axes_lc[1].plot(forest_sizes, forest_valid_scores.mean(axis=1), label="Validation", marker="o")
+	axes_lc[1].fill_between(
+		forest_sizes,
+		forest_train_scores.mean(axis=1) - forest_train_scores.std(axis=1),
+		forest_train_scores.mean(axis=1) + forest_train_scores.std(axis=1),
+		alpha=0.15,
+	)
+	axes_lc[1].fill_between(
+		forest_sizes,
+		forest_valid_scores.mean(axis=1) - forest_valid_scores.std(axis=1),
+		forest_valid_scores.mean(axis=1) + forest_valid_scores.std(axis=1),
+		alpha=0.15,
+	)
+	axes_lc[1].set_title("Random Forest Learning Curve")
+	axes_lc[1].set_xlabel("Training examples")
+	axes_lc[1].set_ylabel("Accuracy")
+	axes_lc[1].grid(alpha=0.3)
+	axes_lc[1].legend()
+
+	fig_lc.suptitle("Learning Curves")
+	fig_lc.tight_layout()
+	fig_lc.savefig(figures_dir / "learning_curves.png", dpi=150)
 
 	plt.show()
 
