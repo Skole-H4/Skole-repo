@@ -1,0 +1,496 @@
+,coefficient
+ssl_final_state,2.64178788628173
+prefix_suffix,2.0202956832161902
+prefix_suffix ssl_final_state,-1.9466107467311986
+url_of_anchor,1.9366724623840026
+having_ip_address dns_record,1.4796360918211484
+ssl_final_state^2,1.3831739255129427
+url_of_anchor rightclick,1.2178284674424396
+url_of_anchor^2,-1.1726928953100018
+ssl_final_state submitting_to_email,-1.1714284410803972
+prefix_suffix redirect,1.1621023157034807
+ssl_final_state server_form_handler,1.1605367093778536
+prefix_suffix server_form_handler,-1.0463415813996948
+ssl_final_state favicon,-1.040132526783097
+submitting_to_email links_pointing_to_page,1.027154331671349
+domain_registration_length server_form_handler,0.9962528757219429
+web_traffic^2,0.9875003847422402
+having_at_symbol links_pointing_to_page,-0.9510332286816422
+https_token url_of_anchor,-0.9081018657271016
+url_of_anchor links_pointing_to_page,0.8950205075391119
+url_length shortening_service,0.8864568614007383
+favicon age_of_domain,-0.8640164035014212
+server_form_handler web_traffic,0.8450389867946124
+server_form_handler popup_window,0.8428978537705908
+prefix_suffix url_of_anchor,-0.832622291814578
+on_mouseover links_pointing_to_page,-0.7882592245187071
+url_length submitting_to_email,-0.7878750993230418
+double_slash_redirecting having_sub_domain,-0.7801434854890543
+url_of_anchor google_index,0.7754177248820419
+port links_in_tags,0.7744018634884904
+age_of_domain page_rank,0.771785361786265
+links_pointing_to_page^2,0.7659779226622834
+port dns_record,-0.7565036697788032
+having_sub_domain https_token,0.7419056154861109
+url_length age_of_domain,-0.7318625401340754
+url_length popup_window,0.7143659380347984
+having_ip_address statistical_report,-0.7118104847502389
+https_token links_in_tags,-0.704734021635087
+ssl_final_state page_rank,0.7024436540381619
+https_token web_traffic,0.6939508222480087
+request_url rightclick,0.6850679199692243
+having_ip_address,0.6836226033141874
+shortening_service prefix_suffix,0.6770749103000905
+dns_record web_traffic,-0.6721308994043191
+domain_registration_length rightclick,-0.6666454412141676
+shortening_service links_pointing_to_page,0.6653658815386071
+ssl_final_state port,0.6652185532535776
+server_form_handler page_rank,0.6601124034554918
+redirect dns_record,0.6374507061870375
+request_url iframe,-0.6328208162480623
+abnormal_url on_mouseover,-0.6195065312672616
+double_slash_redirecting url_of_anchor,-0.615032952205182
+having_at_symbol age_of_domain,0.6125156595974013
+url_length having_at_symbol,-0.6054300339912144
+url_length links_pointing_to_page,-0.6045384308266684
+shortening_service ssl_final_state,-0.6028655898280839
+https_token redirect,-0.5922467194447646
+double_slash_redirecting page_rank,-0.5876551453291717
+domain_registration_length on_mouseover,0.5808712665933335
+url_length redirect,-0.5776531744375856
+having_ip_address links_pointing_to_page,-0.5769329465921677
+on_mouseover,0.5727050749541461
+port links_pointing_to_page,0.5663536503792932
+abnormal_url links_pointing_to_page,0.5646616403906801
+shortening_service links_in_tags,0.5626607081144468
+having_ip_address url_of_anchor,0.5590161916246355
+on_mouseover iframe,-0.5560890088481618
+rightclick iframe,0.5532381789374261
+double_slash_redirecting links_in_tags,0.5402980281748445
+having_ip_address on_mouseover,0.5345559475694056
+request_url,0.534133360296597
+url_length rightclick,-0.5319614399632591
+prefix_suffix page_rank,-0.5307631986615129
+double_slash_redirecting abnormal_url,0.5211164172201871
+server_form_handler,0.5199628067288307
+having_at_symbol links_in_tags,-0.5195119542046496
+port google_index,0.5172782885831744
+having_at_symbol server_form_handler,0.5164380278750099
+port server_form_handler,-0.5162198260218798
+submitting_to_email on_mouseover,0.5140034128186362
+domain_registration_length url_of_anchor,-0.5134977313806923
+dns_record page_rank,-0.5047430351014842
+server_form_handler on_mouseover,-0.4985366605031963
+abnormal_url popup_window,-0.493768728710142
+url_length double_slash_redirecting,0.4932775944759468
+domain_registration_length port,0.4931576426623232
+rightclick age_of_domain,0.49289942008808263
+having_sub_domain port,0.48786300026335283
+having_sub_domain redirect,-0.4878256645153569
+links_in_tags age_of_domain,-0.487118264592783
+double_slash_redirecting age_of_domain,-0.4831020632840389
+url_length page_rank,-0.4787385185091276
+links_pointing_to_page statistical_report,-0.47539218196950866
+ssl_final_state redirect,0.46843879261569515
+port,0.45549173861471354
+ssl_final_state on_mouseover,-0.44918873044165136
+dns_record links_pointing_to_page,-0.4484740677534007
+popup_window google_index,-0.4414746503405989
+having_at_symbol request_url,0.4410082060959837
+domain_registration_length iframe,0.4338140254185157
+ssl_final_state url_of_anchor,0.43296984859550347
+web_traffic google_index,0.43237049036259134
+url_of_anchor popup_window,-0.4316111383355544
+links_in_tags submitting_to_email,-0.43091769046823014
+prefix_suffix https_token,0.42389141807462893
+links_in_tags server_form_handler,0.4225320974054898
+port statistical_report,0.4165924328060752
+web_traffic,0.4165527027595688
+prefix_suffix links_pointing_to_page,0.41167985234902477
+submitting_to_email popup_window,0.41125034206307753
+https_token links_pointing_to_page,-0.40820697687423163
+ssl_final_state popup_window,0.3995551934764565
+links_in_tags links_pointing_to_page,0.3982353926883989
+dns_record statistical_report,0.39659287587666653
+rightclick links_pointing_to_page,0.3961276304185007
+having_sub_domain server_form_handler,0.39520467498673817
+having_ip_address age_of_domain,0.3922375434198393
+url_of_anchor links_in_tags,0.3876338764886145
+links_in_tags^2,-0.3869981069532301
+domain_registration_length links_pointing_to_page,-0.38448419552433466
+prefix_suffix domain_registration_length,-0.3836371336470416
+having_sub_domain^2,0.3823965390556534
+double_slash_redirecting submitting_to_email,-0.382113875691284
+url_length port,0.38018700523502247
+url_of_anchor iframe,0.37639218697765664
+shortening_service having_sub_domain,0.3760432603840844
+ssl_final_state google_index,-0.3751802589930163
+shortening_service having_at_symbol,0.3747853313066977
+page_rank statistical_report,0.3711334296525962
+ssl_final_state iframe,0.3689577564360041
+on_mouseover google_index,0.36463997840620715
+shortening_service submitting_to_email,-0.35973173038980344
+having_ip_address page_rank,0.3580973793763495
+port submitting_to_email,-0.35711648610914404
+rightclick dns_record,0.3568524354795189
+shortening_service statistical_report,0.35505620411958183
+on_mouseover rightclick,-0.35395139626468775
+url_length server_form_handler,-0.35278930476825093
+port request_url,-0.3512491645533176
+url_length google_index,0.3455397495975685
+age_of_domain web_traffic,-0.34279386919034915
+having_at_symbol page_rank,0.33965139363882957
+favicon port,0.33719340353058574
+url_of_anchor age_of_domain,-0.33670002408508054
+having_sub_domain google_index,0.33535483216788764
+https_token,-0.3348512487522229
+having_at_symbol redirect,0.3334770467873131
+links_in_tags rightclick,-0.3286944696459307
+redirect links_pointing_to_page,0.328309622210376
+rightclick web_traffic,0.32706061339964465
+iframe age_of_domain,-0.3254410237817808
+statistical_report,0.32484800947172027
+redirect page_rank,-0.32341560901188815
+web_traffic page_rank,0.3225715245517235
+having_sub_domain url_of_anchor,0.3205523589966014
+url_length dns_record,0.3202244929223981
+popup_window links_pointing_to_page,-0.3177122942580577
+having_sub_domain age_of_domain,-0.3153952348668108
+https_token request_url,0.31502167294146527
+links_in_tags redirect,-0.3143502997079366
+popup_window page_rank,0.3123732155000987
+port url_of_anchor,0.31135033135597184
+submitting_to_email web_traffic,0.30977903839878507
+having_at_symbol ssl_final_state,0.3095749596176395
+having_ip_address port,-0.30845142343791826
+having_ip_address submitting_to_email,-0.30736590412522524
+port on_mouseover,-0.304542314941704
+shortening_service https_token,0.3030213587599482
+having_sub_domain,0.30256485772788444
+rightclick google_index,0.300915790572042
+submitting_to_email redirect,-0.2982177538840853
+url_of_anchor server_form_handler,0.29248807004509153
+url_of_anchor submitting_to_email,-0.2881964995926401
+url_length^2,0.28758105063092576
+port web_traffic,-0.28593262370824696
+submitting_to_email rightclick,-0.28524231477082024
+having_ip_address prefix_suffix,-0.2842795506798112
+having_at_symbol having_sub_domain,-0.2834078482988663
+popup_window iframe,0.2810292691728533
+https_token abnormal_url,-0.2806872609664087
+having_at_symbol statistical_report,-0.28066905027394407
+server_form_handler links_pointing_to_page,-0.27721588314572826
+shortening_service request_url,0.2753535538237453
+port page_rank,-0.2742459481946098
+web_traffic links_pointing_to_page,-0.27212276529740687
+port redirect,-0.2703456065833013
+double_slash_redirecting,0.2699705024222295
+url_length request_url,0.26728502613641403
+https_token dns_record,-0.2654000463823672
+double_slash_redirecting redirect,0.2640670430684681
+port iframe,-0.26339713393508785
+ssl_final_state rightclick,0.26338696576656506
+server_form_handler abnormal_url,-0.262293998589139
+having_sub_domain domain_registration_length,-0.26154317005097916
+age_of_domain google_index,0.2601336642689411
+favicon url_of_anchor,-0.2600030173606531
+having_ip_address request_url,-0.25872256426740126
+prefix_suffix rightclick,0.2549921187467787
+having_ip_address url_length,-0.2523396994404488
+having_at_symbol popup_window,-0.2522139416229121
+shortening_service url_of_anchor,-0.24431838304465892
+on_mouseover dns_record,0.2439079532455609
+on_mouseover page_rank,-0.24377088161528068
+page_rank google_index,-0.24364762872192622
+double_slash_redirecting request_url,-0.24200133780575014
+request_url links_pointing_to_page,-0.24090186847538284
+request_url submitting_to_email,0.2403886109394902
+rightclick popup_window,0.2400366058087829
+having_sub_domain submitting_to_email,0.23798378736921294
+google_index links_pointing_to_page,-0.23787104462307293
+shortening_service iframe,-0.23663795737131074
+url_length web_traffic,0.2360875770171998
+iframe page_rank,0.23431360824669314
+favicon statistical_report,-0.23265503588863748
+submitting_to_email age_of_domain,0.23216306949909526
+shortening_service double_slash_redirecting,0.2318877757073838
+having_at_symbol port,0.2309640998586446
+having_ip_address having_at_symbol,0.22964195581963037
+having_ip_address shortening_service,-0.22611487849790285
+having_sub_domain page_rank,0.22366688312673297
+having_at_symbol,0.2214164840146682
+url_length on_mouseover,-0.2204292487590809
+port rightclick,0.21957053898966106
+on_mouseover popup_window,0.21761351158280878
+dns_record,0.21754288484739867
+google_index,0.2159755714311265
+ssl_final_state dns_record,-0.2129388245864369
+server_form_handler google_index,0.21100637796302874
+shortening_service dns_record,-0.20968665670765826
+links_in_tags iframe,0.2079550706013767
+favicon request_url,-0.20546146183915256
+redirect on_mouseover,-0.2050722311210586
+abnormal_url page_rank,0.20330123735873
+request_url links_in_tags,0.20193950673253075
+server_form_handler submitting_to_email,-0.1999756428628818
+url_length statistical_report,-0.19946219620489233
+favicon https_token,0.1965520378510301
+prefix_suffix having_sub_domain,-0.19353143716123963
+links_in_tags dns_record,0.1925416465306573
+ssl_final_state links_pointing_to_page,-0.19209558963301196
+redirect popup_window,-0.1901374386889393
+url_length url_of_anchor,-0.18948524052765134
+favicon popup_window,0.1893462932417435
+having_at_symbol domain_registration_length,0.18864502421722895
+rightclick page_rank,-0.18815990907179722
+iframe dns_record,0.1874498697442388
+abnormal_url dns_record,-0.1870980261673786
+favicon iframe,0.18592996630983719
+favicon submitting_to_email,0.18458772529452439
+favicon abnormal_url,-0.18437095201847004
+links_in_tags page_rank,-0.1839367361169082
+having_ip_address abnormal_url,-0.1838711683304124
+links_pointing_to_page,0.1833893496557087
+url_length domain_registration_length,0.18082924869691117
+having_ip_address double_slash_redirecting,-0.18063968069106767
+https_token google_index,0.17861519786351582
+double_slash_redirecting ssl_final_state,0.17775989469578973
+having_at_symbol rightclick,0.176369815767784
+url_of_anchor web_traffic,0.17463740587658225
+popup_window web_traffic,0.1709383518414164
+having_at_symbol on_mouseover,-0.17052813877034084
+double_slash_redirecting https_token,0.1688189666222145
+submitting_to_email abnormal_url,0.16824502691872964
+having_sub_domain request_url,-0.16821562823502112
+redirect iframe,0.16796960435043945
+having_sub_domain favicon,-0.1646343672627531
+url_of_anchor on_mouseover,0.16395868943522027
+request_url on_mouseover,-0.1631439512016627
+double_slash_redirecting web_traffic,0.1630818484496457
+shortening_service favicon,-0.15978237751978205
+links_in_tags google_index,0.1562980284414792
+having_at_symbol dns_record,-0.15412119375126565
+double_slash_redirecting links_pointing_to_page,0.15355895929874072
+shortening_service,-0.15226180253541546
+url_length favicon,-0.15156461836898835
+redirect statistical_report,0.15022344659708517
+having_at_symbol https_token,-0.15020710217559965
+shortening_service web_traffic,-0.14827506329721077
+request_url page_rank,0.14823938638818637
+ssl_final_state domain_registration_length,0.14671413241158207
+domain_registration_length dns_record,-0.14634333930627355
+prefix_suffix abnormal_url,0.14518350823024934
+prefix_suffix submitting_to_email,0.14272878305063033
+favicon google_index,-0.14032894461822126
+favicon web_traffic,-0.1387529772729938
+shortening_service server_form_handler,0.1382670866410255
+having_sub_domain web_traffic,-0.13727273415522304
+having_ip_address ssl_final_state,0.1361151391156197
+domain_registration_length page_rank,0.13530988003730157
+request_url url_of_anchor,-0.13499192442821978
+links_in_tags web_traffic,0.13159688716954765
+request_url popup_window,0.13156619585399978
+https_token submitting_to_email,-0.13112264525380993
+popup_window dns_record,0.13043817513312553
+server_form_handler redirect,-0.1286858615570767
+having_sub_domain on_mouseover,-0.127575832736837
+server_form_handler statistical_report,-0.12534013789381718
+links_in_tags popup_window,0.1240753178025318
+having_ip_address domain_registration_length,-0.1232235630536695
+url_length links_in_tags,0.12244580535911337
+https_token page_rank,0.12208689616204366
+abnormal_url redirect,-0.11960130185348464
+having_ip_address web_traffic,-0.1159163616963786
+ssl_final_state request_url,-0.11554387457337754
+server_form_handler^2,-0.1152221093488118
+url_length having_sub_domain,0.11387553219561145
+ssl_final_state age_of_domain,0.11249096930073915
+server_form_handler rightclick,0.10869531455999129
+having_sub_domain links_in_tags,-0.10866866734209031
+prefix_suffix age_of_domain,0.10704280269362518
+port popup_window,0.1052212132077386
+age_of_domain links_pointing_to_page,-0.10463912844402856
+ssl_final_state links_in_tags,0.10376018313027022
+prefix_suffix port,-0.10300201960245402
+https_token iframe,-0.10287727401015796
+having_sub_domain statistical_report,0.10172104408025076
+redirect,-0.1009754647986618
+redirect^2,-0.1009754647986618
+url_length prefix_suffix,0.10027910861198587
+age_of_domain statistical_report,-0.09981678294368843
+dns_record google_index,0.09642356838153492
+shortening_service abnormal_url,0.09410818953987576
+having_at_symbol google_index,-0.09387844362754882
+having_sub_domain ssl_final_state,-0.09375861597507491
+shortening_service popup_window,0.09367264010102878
+having_ip_address server_form_handler,-0.09360243973743117
+double_slash_redirecting server_form_handler,-0.09312362249588577
+favicon redirect,-0.09231907118023784
+abnormal_url statistical_report,-0.08810715065170326
+domain_registration_length https_token,-0.08762953452092283
+url_length abnormal_url,-0.08281845568504162
+domain_registration_length links_in_tags,-0.08215109854160157
+redirect web_traffic,0.07867588963808463
+request_url statistical_report,0.07757240217509384
+double_slash_redirecting rightclick,0.07661635971283058
+links_in_tags,0.07539291457949623
+double_slash_redirecting port,0.07535884486565717
+having_ip_address google_index,0.07489265644467571
+domain_registration_length web_traffic,0.07305553014311603
+abnormal_url rightclick,0.07283358920213581
+ssl_final_state web_traffic,-0.06923248976395201
+domain_registration_length favicon,-0.06917439854710694
+request_url dns_record,-0.06505330904762072
+ssl_final_state statistical_report,0.06466352347891027
+double_slash_redirecting statistical_report,0.06411636408397142
+submitting_to_email iframe,-0.06309805518145818
+having_ip_address having_sub_domain,0.06290271511028957
+shortening_service on_mouseover,0.06043916943640473
+abnormal_url web_traffic,0.05965128941880339
+prefix_suffix iframe,0.05839693788917241
+abnormal_url age_of_domain,0.05823010630786461
+having_ip_address links_in_tags,0.05606884392378353
+links_in_tags statistical_report,-0.053578569481734756
+rightclick statistical_report,0.0531090641618113
+double_slash_redirecting google_index,-0.05151897009097426
+redirect age_of_domain,0.04884496312244855
+port abnormal_url,0.04859352220360601
+having_at_symbol double_slash_redirecting,-0.047092172902479724
+submitting_to_email dns_record,-0.045929541570604096
+https_token server_form_handler,-0.04564575536405844
+url_length https_token,-0.045605984347433876
+url_length ssl_final_state,-0.04427825336992478
+having_ip_address rightclick,-0.04406800068311914
+favicon links_in_tags,-0.04344023622589612
+submitting_to_email,-0.04077831504156605
+having_sub_domain dns_record,-0.03921582932271515
+https_token rightclick,-0.039068767001994256
+prefix_suffix google_index,-0.039039087865327816
+favicon on_mouseover,-0.03812753734184803
+page_rank links_pointing_to_page,-0.03581238544518463
+request_url server_form_handler,0.03497268802072925
+domain_registration_length request_url,-0.03345631582296471
+shortening_service port,0.03324336369033351
+favicon,-0.03268893508554281
+url_of_anchor redirect,-0.03179685057818908
+request_url age_of_domain,-0.03162077591393456
+having_at_symbol url_of_anchor,0.031135350622571587
+iframe statistical_report,-0.029784674883619734
+domain_registration_length submitting_to_email,0.028393185905586663
+domain_registration_length redirect,-0.027867269589206038
+redirect google_index,0.02445711764136677
+url_of_anchor abnormal_url,-0.024363973992620493
+domain_registration_length google_index,-0.023839512801596335
+iframe web_traffic,0.02250588779118775
+https_token on_mouseover,-0.021669702032034166
+favicon links_pointing_to_page,-0.020834995950726933
+favicon server_form_handler,0.019592716024035475
+google_index statistical_report,-0.019463938043762646
+age_of_domain dns_record,-0.019099661911702603
+submitting_to_email statistical_report,-0.018847436625030068
+links_in_tags on_mouseover,0.018438913684836723
+url_length,-0.017326362995604846
+having_at_symbol web_traffic,0.016221559746722642
+having_ip_address redirect,-0.015771730858524777
+shortening_service page_rank,-0.014761908214121043
+domain_registration_length age_of_domain,0.014526462516923154
+request_url web_traffic,-0.014501653382606254
+request_url google_index,0.012996097496728145
+ssl_final_state abnormal_url,-0.012950596265846662
+domain_registration_length abnormal_url,0.010399870897584625
+server_form_handler age_of_domain,0.010390368689000864
+having_at_symbol abnormal_url,-0.0102299624550404
+having_sub_domain popup_window,0.009703634155162578
+favicon dns_record,-0.008608684031169014
+iframe google_index,-0.008476403421581276
+double_slash_redirecting prefix_suffix,0.007233994213079229
+domain_registration_length popup_window,-0.007068820488553296
+request_url redirect,0.0069484984042760805
+having_at_symbol submitting_to_email,0.0067331911861142225
+https_token age_of_domain,-0.0064496347178323215
+having_sub_domain links_pointing_to_page,0.006383192963208797
+https_token statistical_report,-0.006337439100580812
+links_in_tags abnormal_url,0.006329559801720093
+age_of_domain,-0.006030546432801522
+having_ip_address https_token,-0.005306390263698673
+ssl_final_state https_token,-0.004548929357788431
+port age_of_domain,0.0030761024798941503
+iframe,-0.0030266154318314793
+url_of_anchor statistical_report,0.002445026942294401
+url_of_anchor page_rank,0.0023019145742249423
+rightclick,-0.0007607242310792143
+web_traffic statistical_report,0.0004403391639635926
+url_length iframe,0.00010223923742722208
+having_sub_domain abnormal_url,1.7341012397144511e-06
+having_sub_domain rightclick,1.6763811845271222e-06
+on_mouseover age_of_domain,-4.6888658727675184e-07
+favicon rightclick,2.5683742448243115e-07
+having_at_symbol favicon,2.6506712136146267e-08
+shortening_service redirect,2.361783257009291e-08
+having_ip_address iframe,-2.1417239830027814e-08
+having_ip_address popup_window,-1.4757699981078332e-08
+redirect rightclick,1.4156068696132327e-08
+prefix_suffix dns_record,-9.481002977660355e-09
+submitting_to_email google_index,6.095279127162855e-09
+request_url abnormal_url,-4.762461942058905e-09
+prefix_suffix links_in_tags,-1.717570906986182e-09
+prefix_suffix statistical_report,0.0
+prefix_suffix web_traffic,0.0
+prefix_suffix on_mouseover,0.0
+prefix_suffix popup_window,0.0
+https_token popup_window,0.0
+port https_token,0.0
+having_sub_domain iframe,0.0
+favicon page_rank,0.0
+prefix_suffix request_url,0.0
+request_url^2,0.0
+prefix_suffix^2,0.0
+prefix_suffix favicon,0.0
+iframe^2,0.0
+page_rank^2,0.0
+having_ip_address favicon,0.0
+popup_window statistical_report,0.0
+popup_window,0.0
+abnormal_url,0.0
+page_rank,0.0
+having_ip_address^2,0.0
+dns_record^2,0.0
+domain_registration_length^2,0.0
+iframe links_pointing_to_page,0.0
+age_of_domain^2,0.0
+port^2,0.0
+https_token^2,0.0
+domain_registration_length statistical_report,0.0
+favicon^2,0.0
+having_at_symbol prefix_suffix,0.0
+having_at_symbol^2,0.0
+shortening_service google_index,0.0
+shortening_service age_of_domain,0.0
+shortening_service rightclick,0.0
+submitting_to_email^2,0.0
+server_form_handler iframe,0.0
+server_form_handler dns_record,0.0
+url_of_anchor dns_record,0.0
+double_slash_redirecting favicon,0.0
+double_slash_redirecting^2,0.0
+double_slash_redirecting domain_registration_length,0.0
+double_slash_redirecting on_mouseover,0.0
+double_slash_redirecting popup_window,0.0
+double_slash_redirecting iframe,0.0
+double_slash_redirecting dns_record,0.0
+shortening_service^2,0.0
+shortening_service domain_registration_length,0.0
+abnormal_url google_index,0.0
+abnormal_url iframe,0.0
+submitting_to_email page_rank,0.0
+having_at_symbol iframe,0.0
+abnormal_url^2,0.0
+on_mouseover web_traffic,0.0
+popup_window age_of_domain,0.0
+popup_window^2,0.0
+rightclick^2,0.0
+on_mouseover statistical_report,0.0
+on_mouseover^2,0.0
+google_index^2,0.0
+domain_registration_length,0.0
+statistical_report^2,0.0
