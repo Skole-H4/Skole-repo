@@ -408,3 +408,9 @@ Kafka-Playground/Video/KafkaUISeededWithVoteTopic.mp4
 Kafka-Playground/Video/SpinUpAfLøsningenOgPresentationAfKafkaUIOgConnector.mp4
 Kafka-Playground/Video/SpinUpDockerStack.mp4
 Kafka-Playground/Video/Bevis på votes i databasen.mp4
+MachineLearning/Cases/Machine Learning - PhishingWebsites - Projekt aflevering - Martin Sandgaard.zip
+*.joblib
+*.joblib
+*.joblib
+MachineLearning/Cases/PhishingWebsites/outputs/models/logistic_regression_tuned.joblib
+MachineLearning/Cases/PhishingWebsites/outputs/models/random_forest_tuned.joblib
