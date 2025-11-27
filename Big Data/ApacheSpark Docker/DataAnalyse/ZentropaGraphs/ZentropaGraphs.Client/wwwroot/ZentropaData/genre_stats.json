@@ -1,0 +1,102 @@
+[
+  {
+    "genre": "Film-Noir",
+    "avg_rating": 3.9159624604520924,
+    "n_ratings": 318917
+  },
+  {
+    "genre": "War",
+    "avg_rating": 3.7975803596620974,
+    "n_ratings": 1697649
+  },
+  {
+    "genre": "Crime",
+    "avg_rating": 3.697200374363945,
+    "n_ratings": 5688582
+  },
+  {
+    "genre": "Documentary",
+    "avg_rating": 3.6926003173883473,
+    "n_ratings": 441100
+  },
+  {
+    "genre": "Drama",
+    "avg_rating": 3.6858388156115085,
+    "n_ratings": 14787040
+  },
+  {
+    "genre": "Mystery",
+    "avg_rating": 3.6740324184526627,
+    "n_ratings": 2748373
+  },
+  {
+    "genre": "Animation",
+    "avg_rating": 3.6155607954443014,
+    "n_ratings": 2329566
+  },
+  {
+    "genre": "IMAX",
+    "avg_rating": 3.6068664565100064,
+    "n_ratings": 1560106
+  },
+  {
+    "genre": "Western",
+    "avg_rating": 3.5956527311044026,
+    "n_ratings": 632052
+  },
+  {
+    "genre": "Musical",
+    "avg_rating": 3.5480918285086704,
+    "n_ratings": 1239223
+  },
+  {
+    "genre": "Romance",
+    "avg_rating": 3.547333991428422,
+    "n_ratings": 5874531
+  },
+  {
+    "genre": "Thriller",
+    "avg_rating": 3.5340745638278706,
+    "n_ratings": 9168628
+  },
+  {
+    "genre": "Adventure",
+    "avg_rating": 3.5260070625545334,
+    "n_ratings": 8048929
+  },
+  {
+    "genre": "Fantasy",
+    "avg_rating": 3.5143491037018615,
+    "n_ratings": 3899930
+  },
+  {
+    "genre": "Sci-Fi",
+    "avg_rating": 3.4943720647256487,
+    "n_ratings": 6032230
+  },
+  {
+    "genre": "Action",
+    "avg_rating": 3.479978417443542,
+    "n_ratings": 10222144
+  },
+  {
+    "genre": "Children",
+    "avg_rating": 3.4377280914850448,
+    "n_ratings": 2897960
+  },
+  {
+    "genre": "Comedy",
+    "avg_rating": 3.432231744313305,
+    "n_ratings": 11860140
+  },
+  {
+    "genre": "Horror",
+    "avg_rating": 3.307005280845671,
+    "n_ratings": 2610188
+  },
+  {
+    "genre": " We're Comin' To Get Ya!\"\" (2014)\"",
+    "avg_rating": 2.0,
+    "n_ratings": 1
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "movieId": 171011,
+    "title": "Planet Earth II (2016)",
+    "avg_rating": 4.451739343459089,
+    "n_ratings": 2041
+  },
+  {
+    "movieId": 159817,
+    "title": "Planet Earth (2006)",
+    "avg_rating": 4.448092868988391,
+    "n_ratings": 3015
+  },
+  {
+    "movieId": 170705,
+    "title": "Band of Brothers (2001)",
+    "avg_rating": 4.423985890652557,
+    "n_ratings": 2835
+  },
+  {
+    "movieId": 318,
+    "title": "Shawshank Redemption, The (1994)",
+    "avg_rating": 4.416792045528881,
+    "n_ratings": 122296
+  },
+  {
+    "movieId": 171495,
+    "title": "Cosmos",
+    "avg_rating": 4.3432,
+    "n_ratings": 625
+  },
+  {
+    "movieId": 202439,
+    "title": "Parasite (2019)",
+    "avg_rating": 4.3299459633841435,
+    "n_ratings": 12399
+  },
+  {
+    "movieId": 858,
+    "title": "Godfather, The (1972)",
+    "avg_rating": 4.32660258119567,
+    "n_ratings": 75004
+  },
+  {
+    "movieId": 179135,
+    "title": "Blue Planet II (2017)",
+    "avg_rating": 4.312943962115233,
+    "n_ratings": 1267
+  },
+  {
+    "movieId": 220528,
+    "title": "Twelve Angry Men (1954)",
+    "avg_rating": 4.305722891566265,
+    "n_ratings": 332
+  },
+  {
+    "movieId": 198185,
+    "title": "Twin Peaks (1989)",
+    "avg_rating": 4.302561837455831,
+    "n_ratings": 1132
+  }
+]
