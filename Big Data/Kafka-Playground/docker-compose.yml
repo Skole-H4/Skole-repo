@@ -1,0 +1,185 @@
+services:
+  kafka:
+    image: ${KAFKA_IMAGE:-apache/kafka:4.0.1}
+    restart: unless-stopped
+    ports:
+      - "${KAFKA_PORT_EXTERNAL:-9092}:9092"
+    environment:
+      # --- KRaft (no ZooKeeper) ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:${KAFKA_PORT_CONTROLLER:-29093}"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      # --- Listeners (internal for containers, external for host) ---
+      KAFKA_LISTENERS: "PLAINTEXT://:29092,CONTROLLER://:${KAFKA_PORT_CONTROLLER:-29093},PLAINTEXT_HOST://:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:${KAFKA_PORT_INTERNAL:-29092},PLAINTEXT_HOST://${DOCKER_HOST_NAME:-localhost}:${KAFKA_PORT_EXTERNAL:-9092}"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # --- Single-node friendly defaults ---
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_AUTO_INCREASE_PARTITIONS: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+
+      # --- Storage / cluster id (used only on first run) ---
+      CLUSTER_ID: "${CLUSTER_ID:-4L6g3nShT-eMCtK--X86sw}"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+
+      # --- Memory ---
+      KAFKA_HEAP_OPTS: "-Xms${KAFKA_HEAP:-768m} -Xmx${KAFKA_HEAP:-768m}"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:${KAFKA_PORT_INTERNAL:-29092} --list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - kafka-net
+
+  schema-registry:
+    image: ${SCHEMA_REGISTRY_IMAGE:-confluentinc/cp-schema-registry:7.7.1}
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka:${KAFKA_PORT_INTERNAL:-29092}"
+      SCHEMA_REGISTRY_HOST_NAME: "schema-registry"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: "INFO"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - kafka-net
+
+  connect:
+    build:
+      context: .
+      dockerfile: connect/Dockerfile
+    image: ${CONNECT_IMAGE:-local/kafka-connect:7.7.1}
+    pull_policy: build
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: "kafka:${KAFKA_PORT_INTERNAL:-29092}"
+      CONNECT_REST_ADVERTISED_HOST_NAME: "connect"
+      CONNECT_GROUP_ID: "connect-cluster"
+      CONNECT_CONFIG_STORAGE_TOPIC: "_connect-configs"
+      CONNECT_OFFSET_STORAGE_TOPIC: "_connect-offsets"
+      CONNECT_STATUS_STORAGE_TOPIC: "_connect-status"
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_KEY_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
+      CONNECT_VALUE_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components,/etc/kafka-connect/jars"
+      CONNECT_REST_PORT: "8083"
+      KAFKA_HEAP_OPTS: "-Xms${CONNECT_HEAP:-768m} -Xmx${CONNECT_HEAP:-768m}"
+    volumes:
+      - ./connect-plugins:/etc/kafka-connect/jars
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/connectors || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - kafka-net
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "local"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:${KAFKA_PORT_INTERNAL:-29092}"
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: "http://schema-registry:8081"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_started
+    networks:
+      - kafka-net
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql
+    restart: unless-stopped
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+      SA_PASSWORD: "ASdgfbbnh5t4!DSDsa_..S_" # TODO: Move to .env / secrets for production.
+    volumes:
+      - mssql-data:/var/opt/mssql
+      - ./sql-init:/sql-init:ro
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'ASdgfbbnh5t4!DSDsa_..S_' -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks:
+      - kafka-net
+
+  mssql-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      mssql:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/sql-init/entrypoint.sh"]
+    volumes:
+      - ./sql-init:/sql-init:ro
+    restart: "no"
+    networks:
+      - kafka-net
+
+  connect-init:
+    image: curlimages/curl:8.9.1
+    depends_on:
+      connect:
+        condition: service_healthy
+      mssql-init:
+        condition: service_completed_successfully
+    environment:
+      CONNECT_URL: "http://connect:8083"
+    entrypoint: ["/bin/sh", "/register/register-jdbc-sink.sh"]
+    volumes:
+      - ./connect-plugins:/register:ro
+    restart: "no"
+    networks:
+      - kafka-net
+
+  #topics-init:
+  #  image: ${KAFKA_IMAGE:-apache/kafka:4.0.1}
+  #  depends_on:
+  #    kafka:
+  #      condition: service_healthy
+  #  entrypoint: ["/bin/bash", "-lc"]
+  #  command: |
+  #    echo "Creating demo topics if absent..."
+  #    /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:${KAFKA_PORT_INTERNAL:-29092} --create --if-not-exists --topic demo --partitions 3 --replication-factor 1 || true
+  #    /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:${KAFKA_PORT_INTERNAL:-29092} --create --if-not-exists --topic deadletter --partitions 1 --replication-factor 1 || true
+  #    echo "Done."
+  #  restart: "no"
+  #  networks:
+  #    - kafka-net
+
+networks:
+  kafka-net:
+    driver: bridge
+
+volumes:
+  kafka-data:
+  mssql-data:

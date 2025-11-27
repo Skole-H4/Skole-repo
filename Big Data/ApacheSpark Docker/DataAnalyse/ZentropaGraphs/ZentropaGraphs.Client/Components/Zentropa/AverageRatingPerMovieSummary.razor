@@ -1,0 +1,190 @@
+@inject HttpClient Http
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">Failed to summarise per-movie ratings: @_error</div>
+}
+else if (!_isLoaded)
+{
+    <div class="alert alert-info">Scanning per-movie records...</div>
+}
+else
+{
+    <div class="card mb-4">
+        <div class="card-header">
+            <h2 class="h5 m-0">Average Rating per Movie</h2>
+        </div>
+        <div class="card-body">
+            <div class="row text-center mb-3">
+                <div class="col">
+                    <div class="fw-bold">Movies</div>
+                    <div>@_totalMovies.ToString("#,##0")</div>
+                </div>
+                <div class="col">
+                    <div class="fw-bold">Ratings</div>
+                    <div>@_totalRatings.ToString("#,##0")</div>
+                </div>
+                <div class="col">
+                    <div class="fw-bold">Weighted Avg</div>
+                    <div>@_weightedAverage.ToString("0.00")</div>
+                </div>
+            </div>
+            <div class="row g-4">
+                <div class="col-12 col-lg-6">
+                    <h3 class="h6">Highest Rated (\>= 1,000 ratings)</h3>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Title</th>
+                                    <th scope="col" class="text-end">Average</th>
+                                    <th scope="col" class="text-end">Ratings</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _topRated)
+                                {
+                                    <tr>
+                                        <th scope="row">@row.title</th>
+                                        <td class="text-end">@row.avg_rating.ToString("0.00")</td>
+                                        <td class="text-end">@row.n_ratings.ToString("#,##0")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="col-12 col-lg-6">
+                    <h3 class="h6">Most Rated Titles</h3>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Title</th>
+                                    <th scope="col" class="text-end">Average</th>
+                                    <th scope="col" class="text-end">Ratings</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _mostRated)
+                                {
+                                    <tr>
+                                        <th scope="row">@row.title</th>
+                                        <td class="text-end">@row.avg_rating.ToString("0.00")</td>
+                                        <td class="text-end">@row.n_ratings.ToString("#,##0")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const int TopSlots = 10;
+    private const int HighConfidenceThreshold = 1000;
+
+    private readonly List<MovieAveragesRow> _topRated = new(TopSlots);
+    private readonly List<MovieAveragesRow> _mostRated = new(TopSlots);
+
+    private string? _error;
+    private bool _isLoaded;
+    private int _totalMovies;
+    private long _totalRatings;
+    private double _weightedAverage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await using var stream = await Http.GetStreamAsync("ZentropaData/avg_rating_per_movie.json");
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            double weightedSum = 0d;
+
+            await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<MovieAveragesRow>(stream, options))
+            {
+                if (item is null)
+                {
+                    continue;
+                }
+
+                _totalMovies++;
+                _totalRatings += item.n_ratings;
+                weightedSum += item.avg_rating * item.n_ratings;
+
+                if (item.n_ratings >= HighConfidenceThreshold)
+                {
+                    TrackTopCandidate(
+                        _topRated,
+                        item,
+                        static (existing, candidate) =>
+                        {
+                            var primary = existing.avg_rating.CompareTo(candidate.avg_rating);
+                            return primary != 0 ? primary : existing.n_ratings.CompareTo(candidate.n_ratings);
+                        });
+                }
+
+                TrackTopCandidate(
+                    _mostRated,
+                    item,
+                    static (existing, candidate) =>
+                    {
+                        var primary = existing.n_ratings.CompareTo(candidate.n_ratings);
+                        return primary != 0 ? primary : existing.avg_rating.CompareTo(candidate.avg_rating);
+                    });
+            }
+
+            if (_totalRatings > 0)
+            {
+                _weightedAverage = weightedSum / _totalRatings;
+            }
+
+            SortDescending(_topRated, static row => row.avg_rating, static row => row.n_ratings);
+            SortDescending(_mostRated, static row => row.n_ratings, static row => row.avg_rating);
+
+            _isLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private static void TrackTopCandidate(List<MovieAveragesRow> list, MovieAveragesRow candidate, Comparison<MovieAveragesRow> comparison)
+    {
+        if (list.Count < TopSlots)
+        {
+            list.Add(candidate);
+            return;
+        }
+
+        var weakestIndex = 0;
+        for (var i = 1; i < list.Count; i++)
+        {
+            if (comparison(list[i], list[weakestIndex]) < 0)
+            {
+                weakestIndex = i;
+            }
+        }
+
+        if (comparison(candidate, list[weakestIndex]) > 0)
+        {
+            list[weakestIndex] = candidate;
+        }
+    }
+
+    private static void SortDescending(List<MovieAveragesRow> list, Func<MovieAveragesRow, double> primaryKey, Func<MovieAveragesRow, double> secondaryKey)
+    {
+        list.Sort((left, right) =>
+        {
+            var primaryComparison = primaryKey(right).CompareTo(primaryKey(left));
+            return primaryComparison != 0 ? primaryComparison : secondaryKey(right).CompareTo(secondaryKey(left));
+        });
+    }
+
+    private sealed record MovieAveragesRow(int movieId, string title, double avg_rating, int n_ratings);
+}
