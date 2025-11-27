@@ -6,7 +6,7 @@ $adcMax = 1023    # Arduino 10-bit ADC max value (0-1023)
 $R1Values = @(100, 200, 500, 1000, 2200, 4700, 10000, 22000, 47000, 100000, 220000, 470000, 1000000, 2200000, 4700000, 10000000, 22000000, 47000000, 100000000)
 
 # Candidate R2 values (logarithmic sweep for reasonable range)
-$R2Candidates = @(10, 22, 47, 100, 220, 470, 1000, 2200, 4700, 10000, 22000, 47000, 100000, 220000, 470000, 1000000, 2200000, 4700000, 10000000)
+$R2Candidates = @(10, 22, 47, 100, 220, 470, 1000, 2200, 4700, 10000, 22000, 36010, 47000, 100000, 220000, 470000, 1000000, 2200000, 4700000, 10000000)
 
 # Results collection
 $results = @()
@@ -20,10 +20,12 @@ foreach ($R2 in $R2Candidates) {
     
     # Loop through each R1 value
     foreach ($R1 in $R1Values) {
-        # Calculate the output voltage across R2 using the voltage divider formula
+        # Calculate the voltage at the ADC pin using the voltage divider formula
+        # Configuration: Vin --[R1]-- ADC_PIN --[R2]-- GND
+        # Vout (at ADC pin) = Vin × (R2 / (R1 + R2))
         $Vout = $Vin * ($R2 / ($R1 + $R2))
         
-        # Calculate the corresponding ADC value (scale 0-5V to 0-1023)
+        # Calculate the corresponding ADC value (map 0-5V range to 0-1023)
         $adc = [math]::Floor(($Vout / $Vin) * $adcMax)
         
         # Store the unique ADC value (use a dictionary to automatically filter duplicates)

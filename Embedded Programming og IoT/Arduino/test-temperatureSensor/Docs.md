@@ -1,0 +1,1 @@
+https://forum.arduino.cc/t/temperature-sensor-ds18b20/977274/1
