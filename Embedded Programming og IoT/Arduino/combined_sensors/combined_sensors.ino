@@ -2,7 +2,7 @@
 // Displays Light, Sound, Temperature and Humidity on LED Matrix columns
 // 
 // Sensors:
-//   - LDR Light Sensor: A0 -> Column 0
+//   - LDR Light Sensor LM393: A0 -> Column 0
 //   - KY-038 Sound Sensor: A1 -> Column 2
 //   - DS18B20 Temperature: Digital Pin 1 -> Column 4
 //   - DHT11 Humidity: Digital Pin 2 -> Column 6
@@ -28,6 +28,10 @@ const int SOUND_PIN = A1;         // Sound sensor analog pin
 #define ONE_WIRE_BUS 1            // Temperature sensor digital pin
 #define DHT_PIN 2                 // DHT11 humidity sensor digital pin
 #define DHT_TYPE DHT11            // DHT sensor type
+const int MODE_BUTTON_PIN = 3;    // Push button for mode selection
+
+// ============== MODE CONFIGURATION ==============
+bool calibrationMode = false;     // true = calibration, false = AP + webserver
 
 // ============== LED MATRIX CONFIGURATION ==============
 ArduinoLEDMatrix matrix;
@@ -53,11 +57,12 @@ byte frame[8][12] = {
 };
 
 // ============== LIGHT SENSOR CALIBRATION ==============
-// Calibration: 3.5V = 0 lux (dark), 4.8V = 900 lux (bright)
-const float LIGHT_VOLTAGE_MIN = 3.5;   // Voltage at 0 lux
-const float LIGHT_VOLTAGE_MAX = 4.8;   // Voltage at max lux
-const float MIN_LUX = 0.0;             // Minimum lux
-const float MAX_LUX = 900.0;           // Maximum lux (at 4.8V)
+// LM393 Light Sensor Module - outputs LOWER voltage when brighter (inverted)
+// Calibration values - adjust based on your readings
+const float LIGHT_VOLTAGE_DARK = 4.5;    // Voltage when dark (high value)
+const float LIGHT_VOLTAGE_BRIGHT = 1.0;  // Voltage when bright (low value)
+const float MIN_LUX = 0.0;               // Minimum lux (dark)
+const float MAX_LUX = 900.0;             // Maximum lux (bright)
 
 // ============== SOUND SENSOR CALIBRATION ==============
 const int MIN_SOUND = 79;         // Minimum expected analog reading
@@ -95,53 +100,69 @@ void setup() {
   Serial.begin(9600);
   delay(2000);  // Wait for Serial to be ready
   
+  // Setup mode button with internal pull-up
+  pinMode(MODE_BUTTON_PIN, INPUT_PULLUP);
+  
+  // Check button state at startup (LOW = pressed because of pull-up)
+  calibrationMode = (digitalRead(MODE_BUTTON_PIN) == LOW);
+  
   Serial.println();
   Serial.println("=== Arduino UNO R4 WiFi Starting ===");
   Serial.println();
   
+  if (calibrationMode) {
+    Serial.println("*** CALIBRATION MODE ***");
+    Serial.println("Button was held during startup");
+    Serial.println("WiFi and web server DISABLED");
+    Serial.println("Raw sensor values will be printed for calibration");
+    Serial.println();
+  }
+  
   // Initialize LED Matrix
   matrix.begin();
   
-  // ============== CREATE ACCESS POINT ==============
-  Serial.println("Creating WiFi Access Point...");
-  Serial.print("SSID: ");
-  Serial.println(AP_SSID);
-  Serial.print("Password: ");
-  Serial.println(AP_PASSWORD);
-  Serial.println();
-  
-  // Create the Access Point
-  int status = WiFi.beginAP(AP_SSID, AP_PASSWORD);
-  
-  if (status != WL_AP_LISTENING) {
-    Serial.println("Creating Access Point failed!");
-    Serial.print("Status: ");
-    Serial.println(status);
-    // Continue anyway, sensors will still work
-  } else {
-    Serial.println("Access Point created successfully!");
-    delay(2000);  // Give AP time to start
-    
-    Serial.print("AP IP Address: ");
-    Serial.println(WiFi.localIP());
-    
-    // Start web server
-    server.begin();
-    Serial.println();
-    Serial.println("Web server started!");
-    Serial.println();
-    Serial.println("===========================================");
-    Serial.println("Connect your device to WiFi network:");
-    Serial.print("  SSID: ");
+  // ============== CREATE ACCESS POINT (only in normal mode) ==============
+  if (!calibrationMode) {
+    Serial.println("Creating WiFi Access Point...");
+    Serial.print("SSID: ");
     Serial.println(AP_SSID);
-    Serial.print("  Password: ");
+    Serial.print("Password: ");
     Serial.println(AP_PASSWORD);
     Serial.println();
-    Serial.print("Then open: http://");
-    Serial.println(WiFi.localIP());
-    Serial.println("===========================================");
+    
+    // Create the Access Point
+    int status = WiFi.beginAP(AP_SSID, AP_PASSWORD);
+    
+    if (status != WL_AP_LISTENING) {
+      Serial.println("Creating Access Point failed!");
+      Serial.print("Status: ");
+      Serial.println(status);
+      // Continue anyway, sensors will still work
+    } else {
+      Serial.println("Access Point created successfully!");
+      delay(2000);  // Give AP time to start
+      
+      Serial.print("AP IP Address: ");
+      Serial.println(WiFi.localIP());
+      
+      // Start web server
+      server.begin();
+      Serial.println();
+      Serial.println("Web server started!");
+      Serial.println();
+      Serial.println("===========================================");
+      Serial.println("Connect your device to WiFi network:");
+      Serial.print("  SSID: ");
+      Serial.println(AP_SSID);
+      Serial.print("  Password: ");
+      Serial.println(AP_PASSWORD);
+      Serial.println();
+      Serial.print("Then open: http://");
+      Serial.println(WiFi.localIP());
+      Serial.println("===========================================");
+    }
+    Serial.println();
   }
-  Serial.println();
   
   // Initialize temperature sensor
   tempSensor.begin();
@@ -167,14 +188,17 @@ void setup() {
 }
 
 void loop() {
-  // ============== HANDLE WEB CLIENTS ==============
-  handleWebClient();
+  // ============== HANDLE WEB CLIENTS (only in normal mode) ==============
+  if (!calibrationMode) {
+    handleWebClient();
+  }
   
   // ============== READ LIGHT SENSOR ==============
   int lightRaw = analogRead(LDR_PIN);
   float lightVoltage = (lightRaw / 1023.0) * 5.0;
-  // Convert voltage to Lux (linear interpolation: 3.5V=0lux, 4.8V=900lux)
-  float lightLux = ((lightVoltage - LIGHT_VOLTAGE_MIN) / (LIGHT_VOLTAGE_MAX - LIGHT_VOLTAGE_MIN)) * MAX_LUX;
+  // LM393: INVERTED - lower voltage = more light
+  // Map from voltage range to lux (inverted: dark voltage -> 0 lux, bright voltage -> max lux)
+  float lightLux = ((LIGHT_VOLTAGE_DARK - lightVoltage) / (LIGHT_VOLTAGE_DARK - LIGHT_VOLTAGE_BRIGHT)) * MAX_LUX;
   lightLux = constrain(lightLux, MIN_LUX, MAX_LUX);
   currentLightLux = lightLux;  // Store for web server
   int lightLeds = map(lightLux, MIN_LUX, MAX_LUX, 0, MATRIX_HEIGHT);
@@ -223,16 +247,47 @@ void loop() {
   
   // ============== DEBUG OUTPUT ==============
   static unsigned long lastPrint = 0;
-  if (millis() - lastPrint >= 500) {
-    Serial.print("Light: ");
-    Serial.print(lightLux, 0);
-    Serial.print(" lux | Sound: ");
-    Serial.print(soundValue);
-    Serial.print(" | Temp: ");
-    Serial.print(lastTemperature, 1);
-    Serial.print("C | Humidity: ");
-    Serial.print(lastHumidity, 1);
-    Serial.println("%");
+  unsigned long printInterval = calibrationMode ? 200 : 500;  // Faster in calibration mode
+  
+  if (millis() - lastPrint >= printInterval) {
+    if (calibrationMode) {
+      // Detailed calibration output
+      Serial.println("-------- CALIBRATION VALUES --------");
+      Serial.print("LIGHT:    RAW=");
+      Serial.print(lightRaw);
+      Serial.print("  V=");
+      Serial.print(lightVoltage, 3);
+      Serial.print("  -> ");
+      Serial.print(lightLux, 1);
+      Serial.println(" lux");
+      
+      Serial.print("SOUND:    RAW=");
+      Serial.println(soundValue);
+      
+      Serial.print("TEMP:     ");
+      Serial.print(lastTemperature, 2);
+      Serial.println(" C");
+      
+      Serial.print("HUMIDITY: ");
+      Serial.print(lastHumidity, 2);
+      Serial.println(" %");
+      Serial.println();
+    } else {
+      // Normal compact output
+      Serial.print("Light: RAW=");
+      Serial.print(lightRaw);
+      Serial.print(" V=");
+      Serial.print(lightVoltage, 2);
+      Serial.print(" -> ");
+      Serial.print(lightLux, 0);
+      Serial.print(" lux | Sound: ");
+      Serial.print(soundValue);
+      Serial.print(" | Temp: ");
+      Serial.print(lastTemperature, 1);
+      Serial.print("C | Humidity: ");
+      Serial.print(lastHumidity, 1);
+      Serial.println("%");
+    }
     lastPrint = millis();
   }
   
