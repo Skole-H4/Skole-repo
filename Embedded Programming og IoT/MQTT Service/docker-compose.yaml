@@ -1,0 +1,48 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mqtt-broker
+    restart: unless-stopped
+    ports:
+      # MQTT standard port - exposed to local network
+      - "1883:1883"
+      # MQTT over WebSocket (optional, for web clients)
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    networks:
+      - mqtt-network
+
+  # MQTT Web UI - Dashboard for inspecting messages and topics
+  mqtt-explorer:
+    image: smeagolworms4/mqtt-explorer
+    container_name: mqtt-explorer
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    networks:
+      - mqtt-network
+
+  # Home Assistant - Smart Home Platform
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./homeassistant/config:/config
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=Europe/Copenhagen
+    networks:
+      - mqtt-network
+    depends_on:
+      - mosquitto
+
+networks:
+  mqtt-network:
+    driver: bridge

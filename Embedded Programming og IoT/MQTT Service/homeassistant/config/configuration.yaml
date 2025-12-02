@@ -1,0 +1,40 @@
+# Home Assistant Configuration
+# ============================
+
+homeassistant:
+  name: Arduino Sensors
+  unit_system: metric
+  time_zone: Europe/Copenhagen
+
+# Enable frontend
+frontend:
+
+# Use custom Lovelace dashboard
+lovelace:
+  mode: yaml
+
+# Enable configuration UI
+config:
+
+# HTTP settings
+http:
+  server_port: 8123
+
+# Logging
+logger:
+  default: info
+
+# MQTT sensors are now configured via UI integration
+# Go to Settings -> Devices & Services -> Add Integration -> MQTT
+# 
+# MQTT Broker settings:
+#   Host: mqtt-broker
+#   Port: 1883
+#   Username: arduino
+#   Password: sensor1234
+#
+# After MQTT is connected, sensors will auto-discover or add manually:
+#   - sensors/light (lux)
+#   - sensors/sound (raw)  
+#   - sensors/temperature (°C)
+#   - sensors/humidity (%)

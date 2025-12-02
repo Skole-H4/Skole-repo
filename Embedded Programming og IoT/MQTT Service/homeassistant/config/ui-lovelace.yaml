@@ -1,0 +1,87 @@
+title: Arduino Sensors Dashboard
+views:
+  - title: Home
+    cards:
+      - type: entities
+        title: Arduino Sensors
+        entities:
+          - entity: sensor.arduino_sensors_arduino_temperature
+            name: Temperature
+            icon: mdi:thermometer
+          - entity: sensor.arduino_sensors_arduino_humidity
+            name: Humidity
+            icon: mdi:water-percent
+          - entity: sensor.arduino_sensors_arduino_sound
+            name: Sound Level
+            icon: mdi:volume-high
+          - entity: sensor.arduino_sensors_arduino_light
+            name: Light
+            icon: mdi:brightness-6
+          - entity: sensor.arduino_sensors_flammable_gas_smoke
+            name: Flammable Gas/Smoke
+            icon: mdi:fire-alert
+          - entity: sensor.arduino_sensors_air_quality_dust
+            name: Air Quality (Dust)
+            icon: mdi:blur
+          - entity: binary_sensor.arduino_sensors_arduino_motion
+            name: Motion
+            icon: mdi:motion-sensor
+      - type: gauge
+        entity: sensor.arduino_sensors_arduino_temperature
+        name: Temperature
+        min: 0
+        max: 50
+        severity:
+          green: 18
+          yellow: 25
+          red: 30
+      - type: gauge
+        entity: sensor.arduino_sensors_arduino_humidity
+        name: Humidity
+        min: 0
+        max: 100
+        severity:
+          green: 40
+          yellow: 60
+          red: 80
+      - type: gauge
+        entity: sensor.arduino_sensors_arduino_sound
+        name: Sound Level
+        min: 0
+        max: 200
+        severity:
+          green: 0
+          yellow: 50
+          red: 100
+      - type: gauge
+        entity: sensor.arduino_sensors_arduino_light
+        name: Light
+        min: 0
+        max: 1023
+        severity:
+          red: 0
+          yellow: 300
+          green: 600
+      - type: gauge
+        entity: sensor.arduino_sensors_flammable_gas_smoke
+        name: Flammable Gas/Smoke
+        min: 0
+        max: 1023
+        severity:
+          green: 0
+          yellow: 200
+          red: 400
+      - type: gauge
+        entity: sensor.arduino_sensors_air_quality_dust
+        name: Air Quality (Dust)
+        unit: ug/m3
+        min: 0
+        max: 300
+        severity:
+          green: 0
+          yellow: 75
+          red: 150
+      - type: entity
+        entity: binary_sensor.arduino_sensors_arduino_motion
+        name: Motion Detector
+        icon: mdi:motion-sensor

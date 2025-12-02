@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "minor_version": 12,
+  "key": "core.device_registry",
+  "data": {
+    "devices": [
+      {"area_id":null,"config_entries":["01KBCD988TKT0GS36NW92JHC6E"],"config_entries_subentries":{"01KBCD988TKT0GS36NW92JHC6E":[null]},"configuration_url":"homeassistant://config/backup","connections":[],"created_at":"2025-12-01T07:33:24.895426+00:00","disabled_by":null,"entry_type":"service","hw_version":null,"id":"af5b544561476b7d5365f158984a21b6","identifiers":[["backup","backup_manager"]],"labels":[],"manufacturer":"Home Assistant","model":"Home Assistant Backup","model_id":null,"modified_at":"2025-12-01T07:33:24.895514+00:00","name_by_user":null,"name":"Backup","primary_config_entry":"01KBCD988TKT0GS36NW92JHC6E","serial_number":null,"sw_version":"2025.11.3","via_device_id":null},
+      {"area_id":null,"config_entries":["01KBCDB1BPB54VQWZDCFC27N85"],"config_entries_subentries":{"01KBCDB1BPB54VQWZDCFC27N85":[null]},"configuration_url":"https://www.met.no/en","connections":[],"created_at":"2025-12-01T07:34:23.716467+00:00","disabled_by":null,"entry_type":"service","hw_version":null,"id":"dc87e5c02e369516b7d37dc6d8f3099c","identifiers":[["met","01KBCDB1BPB54VQWZDCFC27N85"]],"labels":[],"manufacturer":"Met.no","model":"Forecast","model_id":null,"modified_at":"2025-12-01T07:34:23.716510+00:00","name_by_user":null,"name":"Forecast","primary_config_entry":"01KBCDB1BPB54VQWZDCFC27N85","serial_number":null,"sw_version":null,"via_device_id":null},
+      {"area_id":null,"config_entries":["01KBCDG86CBMSJJF7H2VSZ9G6K"],"config_entries_subentries":{"01KBCDG86CBMSJJF7H2VSZ9G6K":[null]},"configuration_url":null,"connections":[],"created_at":"2025-12-01T07:39:24.757318+00:00","disabled_by":null,"entry_type":null,"hw_version":null,"id":"5095f0de9281c823fc05a7437be451d1","identifiers":[["mqtt","arduino_sensors"]],"labels":[],"manufacturer":"Arduino","model":"UNO R4 WiFi","model_id":null,"modified_at":"2025-12-01T07:39:24.757549+00:00","name_by_user":null,"name":"Arduino Sensors","primary_config_entry":"01KBCDG86CBMSJJF7H2VSZ9G6K","serial_number":null,"sw_version":null,"via_device_id":null}
+    ],
+    "deleted_devices": []
+  }
+}

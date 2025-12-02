@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "minor_version": 5,
+  "key": "core.config_entries",
+  "data": {
+    "entries": [
+      {"created_at":"2025-12-01T07:33:24.891007+00:00","data":{},"disabled_by":null,"discovery_keys":{},"domain":"backup","entry_id":"01KBCD988TKT0GS36NW92JHC6E","minor_version":1,"modified_at":"2025-12-01T07:33:24.891010+00:00","options":{},"pref_disable_new_entities":false,"pref_disable_polling":false,"source":"system","subentries":[],"title":"Backup","unique_id":null,"version":1},
+      {"created_at":"2025-12-01T07:34:23.333052+00:00","data":{},"disabled_by":null,"discovery_keys":{},"domain":"shopping_list","entry_id":"01KBCDB1B5ZB7E2MDCFMQNFAF1","minor_version":1,"modified_at":"2025-12-01T07:34:23.333056+00:00","options":{},"pref_disable_new_entities":false,"pref_disable_polling":false,"source":"onboarding","subentries":[],"title":"Shopping list","unique_id":"shopping_list","version":1},
+      {"created_at":"2025-12-01T07:34:23.350147+00:00","data":{"track_home":true},"disabled_by":null,"discovery_keys":{},"domain":"met","entry_id":"01KBCDB1BPB54VQWZDCFC27N85","minor_version":1,"modified_at":"2025-12-01T07:34:23.350150+00:00","options":{},"pref_disable_new_entities":false,"pref_disable_polling":false,"source":"onboarding","subentries":[],"title":"Home","unique_id":null,"version":1},
+      {"created_at":"2025-12-01T07:34:23.448716+00:00","data":{},"disabled_by":null,"discovery_keys":{},"domain":"radio_browser","entry_id":"01KBCDB1EREYPTMT6T3PRXYA58","minor_version":1,"modified_at":"2025-12-01T07:34:23.448722+00:00","options":{},"pref_disable_new_entities":false,"pref_disable_polling":false,"source":"onboarding","subentries":[],"title":"Radio Browser","unique_id":null,"version":1},
+      {"created_at":"2025-12-01T07:34:23.508569+00:00","data":{"language":"en","tld":"com"},"disabled_by":null,"discovery_keys":{},"domain":"google_translate","entry_id":"01KBCDB1GMMTV228QZCDPG6RYA","minor_version":1,"modified_at":"2025-12-01T07:34:23.508574+00:00","options":{},"pref_disable_new_entities":false,"pref_disable_polling":false,"source":"onboarding","subentries":[],"title":"Google Translate text-to-speech","unique_id":null,"version":1},
+      {"created_at":"2025-12-01T07:37:14.188403+00:00","data":{"broker":"mqtt-broker","password":"sensor1234","port":1883,"username":"arduino"},"disabled_by":null,"discovery_keys":{},"domain":"mqtt","entry_id":"01KBCDG86CBMSJJF7H2VSZ9G6K","minor_version":2,"modified_at":"2025-12-01T07:37:14.188409+00:00","options":{},"pref_disable_new_entities":false,"pref_disable_polling":false,"source":"user","subentries":[],"title":"mqtt-broker","unique_id":null,"version":1}
+    ]
+  }
+}
