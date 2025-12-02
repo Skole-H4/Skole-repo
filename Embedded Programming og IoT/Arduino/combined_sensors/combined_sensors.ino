@@ -14,6 +14,8 @@
 //   - DHT11 Humidity: Digital Pin 2 -> Column 6
 //   - HC-SR501 PIR Motion: Digital Pin 4 -> Motion detection
 //   - Grove Dust Sensor (PPD42NS): Digital Pin 5 -> Air quality/dust
+//   - Sound Module Digital Out (Clap): Digital Pin 6 -> Clap detection
+//   - Gravity CO2 Sensor V2.0 (DFRobot): A3 -> CO2 concentration (400-5000 ppm)
 //   - LCM1602C LCD (I2C): A4 (SDA), A5 (SCL) -> Display readouts
 
 #include "Arduino_LED_Matrix.h"
@@ -91,7 +93,10 @@ const char* TOPIC_SOUND = "sensors/sound";
 const char* TOPIC_TEMPERATURE = "sensors/temperature";
 const char* TOPIC_HUMIDITY = "sensors/humidity";
 const char* TOPIC_MOTION = "sensors/motion";
+const char* TOPIC_CLAP = "sensors/clap";
+const char* TOPIC_CO2 = "sensors/co2";
 const char* TOPIC_GAS = "sensors/gas";
+const char* TOPIC_GAS_DETECTED = "sensors/gas_detected";
 const char* TOPIC_DUST = "sensors/dust";
 const char* TOPIC_ALL = "sensors/all";  // JSON with all values
 
@@ -105,6 +110,8 @@ const int MQ2_PIN = A2;           // MQ2 gas sensor analog pin (FC-22 board)
 const int MODE_BUTTON_PIN = 3;    // Push button for mode selection (wired to D3 and GND)
 const int PIR_PIN = 4;            // HC-SR501 PIR motion sensor (wired to D4)
 const int DUST_PIN = 5;           // Grove Dust Sensor PPD42NS (wired to D5)
+const int CLAP_PIN = 6;           // Sound module digital output (clap detection)
+const int CO2_PIN = A3;           // Gravity CO2 Sensor - testing analog read
 
 // ============== LCD CONFIGURATION ==============
 // I2C LCD with WWZMDiB adapter - common addresses are 0x27 or 0x3F
@@ -115,7 +122,7 @@ LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
 
 // LCD display page (cycles through different views)
 int lcdPage = 0;
-const int LCD_PAGES = 4;  // Number of different display pages
+const int LCD_PAGES = 5;  // Number of different display pages
 unsigned long lastLcdUpdate = 0;
 const unsigned long LCD_UPDATE_INTERVAL = 2000;  // Change page every 2 seconds
 
@@ -159,11 +166,19 @@ byte frame[8][12] = {
 
 // ============== LIGHT SENSOR CALIBRATION ==============
 // LM393 Light Sensor Module - outputs LOWER voltage when brighter (inverted)
-// Calibration values - adjust based on your readings
-const float LIGHT_VOLTAGE_DARK = 4.5;    // Voltage when dark (high value)
-const float LIGHT_VOLTAGE_BRIGHT = 1.0;  // Voltage when bright (low value)
+// Calibration based on real measurements:
+//   - Classroom (918 lux) = 0.93V
+//   - Flashlight (10311 lux) = 0.25V
+// LDR response is logarithmic, so we use exponential formula:
+//   lux = A * e^(-B * voltage)
+// Solving with two data points:
+//   918 = A * e^(-B * 0.93)
+//   10311 = A * e^(-B * 0.25)
+// Gives: B = 3.57, A = 25000
+const float LIGHT_EXP_A = 25000.0;       // Exponential coefficient A
+const float LIGHT_EXP_B = 3.57;          // Exponential coefficient B
 const float MIN_LUX = 0.0;               // Minimum lux (dark)
-const float MAX_LUX = 900.0;             // Maximum lux (bright)
+const float MAX_LUX_DISPLAY = 15000.0;   // Maximum lux for display/clamping
 
 // ============== SOUND SENSOR CALIBRATION ==============
 // KY-038 outputs ~512 at silence (mid-point), spikes up/down with sound
@@ -202,9 +217,12 @@ float lastHumidity = 0;
 
 // Global sensor values for web server
 float currentLightLux = 0;
+float currentLightVoltage = 0;  // For debugging
 int currentSoundValue = 0;
 bool motionDetected = false;
+bool clapDetected = false;
 int currentGasValue = 0;
+int currentCO2ppm = 0;        // CO2 concentration in ppm
 float dustConcentration = 0;  // ug/m3
 
 // Dust sensor timing (PPD42NS needs 30-second sampling)
@@ -221,6 +239,8 @@ void setup() {
   
   // Setup PIR motion sensor
   pinMode(PIR_PIN, INPUT);
+  pinMode(CLAP_PIN, INPUT);
+  pinMode(CO2_PIN, INPUT);  // CO2 sensor PWM input
   
   // Setup dust sensor
   pinMode(DUST_PIN, INPUT);
@@ -334,12 +354,14 @@ void loop() {
   // ============== READ LIGHT SENSOR ==============
   int lightRaw = analogRead(LDR_PIN);
   float lightVoltage = (lightRaw / 1023.0) * 5.0;
+  currentLightVoltage = lightVoltage;  // Store for debugging
   // LM393: INVERTED - lower voltage = more light
-  // Map from voltage range to lux (inverted: dark voltage -> 0 lux, bright voltage -> max lux)
-  float lightLux = ((LIGHT_VOLTAGE_DARK - lightVoltage) / (LIGHT_VOLTAGE_DARK - LIGHT_VOLTAGE_BRIGHT)) * MAX_LUX;
-  lightLux = constrain(lightLux, MIN_LUX, MAX_LUX);
+  // Exponential formula: lux = A * e^(-B * voltage)
+  // Calibrated: 0.93V = 918 lux, 0.25V = 10311 lux
+  float lightLux = LIGHT_EXP_A * exp(-LIGHT_EXP_B * lightVoltage);
+  lightLux = constrain(lightLux, MIN_LUX, MAX_LUX_DISPLAY);  // Clamp to display range
   currentLightLux = lightLux;  // Store for web server
-  int lightLeds = map(lightLux, MIN_LUX, MAX_LUX, 0, MATRIX_HEIGHT);
+  int lightLeds = map(lightLux, MIN_LUX, MAX_LUX_DISPLAY, 0, MATRIX_HEIGHT);
   lightLeds = constrain(lightLeds, 0, MATRIX_HEIGHT);
   
   // ============== READ SOUND SENSOR ==============
@@ -384,6 +406,52 @@ void loop() {
   
   // ============== READ PIR MOTION SENSOR ==============
   motionDetected = digitalRead(PIR_PIN) == HIGH;
+  
+  // ============== READ CLAP SENSOR (Sound module digital out) ==============
+  // KY-038: Digital output goes HIGH when sound exceeds threshold set by potentiometer
+  clapDetected = digitalRead(CLAP_PIN) == HIGH;
+  
+  // ============== READ CO2 SENSOR (Gravity CO2 V2.0 - PWM via Analog) ==============
+  // The PWM signal averages out when read as analog
+  // This sensor: LOW time corresponds to CO2 (inverted from typical)
+  // low_time_ms = (1 - voltage/5.0) * 1004
+  // ppm = (low_time_ms - 2) * 5
+  // CALIBRATION: Offset applied based on known reference (well-ventilated room = 500 ppm)
+  const int CO2_CALIBRATION_OFFSET = -1178;  // Adjust this value to calibrate
+  static unsigned long lastCO2Debug = 0;
+  
+  int co2Raw = analogRead(CO2_PIN);
+  float co2Voltage = co2Raw * (5.0 / 1023.0);
+  
+  // Calculate PPM from LOW time (inverted duty cycle)
+  float dutyCycle = co2Voltage / 5.0;  // HIGH portion
+  float lowTimeMs = (1.0 - dutyCycle) * 1004.0;  // LOW portion = CO2 indicator
+  
+  int rawPpm = 0;
+  if (lowTimeMs < 2.0) {
+    rawPpm = 0;  // Preheating
+  } else if (lowTimeMs > 1002.0) {
+    rawPpm = 5000;  // Max range
+  } else {
+    rawPpm = (int)((lowTimeMs - 2.0) * 5.0);
+  }
+  
+  // Apply calibration offset and clamp to valid range
+  currentCO2ppm = rawPpm + CO2_CALIBRATION_OFFSET;
+  if (currentCO2ppm < 400) currentCO2ppm = 400;  // Outdoor minimum
+  if (currentCO2ppm > 5000) currentCO2ppm = 5000;  // Sensor max
+  
+  // Debug every 2 seconds
+  if (millis() - lastCO2Debug >= 2000) {
+    Serial.print("CO2 - Voltage: ");
+    Serial.print(co2Voltage, 2);
+    Serial.print("V | Raw: ");
+    Serial.print(rawPpm);
+    Serial.print(" | Calibrated: ");
+    Serial.print(currentCO2ppm);
+    Serial.println(" ppm");
+    lastCO2Debug = millis();
+  }
   
   // ============== READ MQ2 GAS SENSOR ==============
   currentGasValue = analogRead(MQ2_PIN);
@@ -447,7 +515,10 @@ void loop() {
     Serial.print(" IP: ");
     Serial.print(WiFi.localIP());
     Serial.print(" | Light: ");
-    Serial.print(lightLux, 0);
+    Serial.print(currentLightLux, 0);
+    Serial.print("lux (");
+    Serial.print(currentLightVoltage, 2);
+    Serial.print("V)");
     Serial.print(" | Sound: ");
     Serial.print(soundPeakToPeak);
     Serial.print(" | Temp: ");
@@ -461,7 +532,12 @@ void loop() {
     Serial.print(dustConcentration, 0);
     Serial.print("ug/m3");
     Serial.print(" | Motion: ");
-    Serial.println(motionDetected ? "DETECTED" : "none");
+    Serial.print(motionDetected ? "DETECTED" : "none");
+    Serial.print(" | Clap: ");
+    Serial.print(clapDetected ? "DETECTED" : "none");
+    Serial.print(" | CO2: ");
+    Serial.print(currentCO2ppm);
+    Serial.println("ppm");
     lastPrint = millis();
   }
   
@@ -632,10 +708,21 @@ void publishSensorData() {
   
   // Publish motion status
   mqttClient.publish(TOPIC_MOTION, motionDetected ? "ON" : "OFF");
-  
-  // Publish gas sensor value
+
+  // Publish clap detection
+  mqttClient.publish(TOPIC_CLAP, clapDetected ? "ON" : "OFF");
+
+  // Publish CO2 concentration
+  itoa(currentCO2ppm, payload, 10);
+  mqttClient.publish(TOPIC_CO2, payload);
+
+  // Publish gas sensor value (raw)
   itoa(currentGasValue, payload, 10);
   mqttClient.publish(TOPIC_GAS, payload);
+  
+  // Publish gas detected as binary (matches hosted HA)
+  bool gasDetected = currentGasValue > 200;
+  mqttClient.publish(TOPIC_GAS_DETECTED, gasDetected ? "ON" : "OFF");
   
   // Publish dust concentration
   dtostrf(dustConcentration, 1, 1, payload);
@@ -649,7 +736,9 @@ void publishSensorData() {
   json += "\"humidity\":" + String(lastHumidity, 1) + ",";
   json += "\"gas\":" + String(currentGasValue) + ",";
   json += "\"dust\":" + String(dustConcentration, 1) + ",";
-  json += "\"motion\":\"" + String(motionDetected ? "ON" : "OFF") + "\"";
+  json += "\"motion\":\"" + String(motionDetected ? "ON" : "OFF") + "\",";
+  json += "\"clap\":\"" + String(clapDetected ? "ON" : "OFF") + "\",";
+  json += "\"co2\":" + String(currentCO2ppm);
   json += "}";
   mqttClient.publish(TOPIC_ALL, json.c_str());
   
@@ -660,83 +749,111 @@ void publishSensorData() {
 void publishHomeAssistantDiscovery() {
   Serial.println("Publishing Home Assistant discovery config...");
   
+  // Common device info - matches hosted HA naming
+  const char* deviceInfo = "\"device\":{\"identifiers\":[\"classroom_sensor\"],\"name\":\"Classroom Sensor\",\"model\":\"UNO R4 WiFi\",\"manufacturer\":\"Arduino\"}";
+  
   // Light sensor discovery
   String lightConfig = "{";
-  lightConfig += "\"name\":\"Arduino Light\",";
+  lightConfig += "\"name\":\"Classroom Light Level\",";
   lightConfig += "\"state_topic\":\"sensors/light\",";
   lightConfig += "\"unit_of_measurement\":\"lux\",";
   lightConfig += "\"device_class\":\"illuminance\",";
-  lightConfig += "\"unique_id\":\"arduino_light\",";
-  lightConfig += "\"device\":{\"identifiers\":[\"arduino_sensors\"],\"name\":\"Arduino Sensors\",\"model\":\"UNO R4 WiFi\",\"manufacturer\":\"Arduino\"}";
+  lightConfig += "\"unique_id\":\"classroom_light_level\",";
+  lightConfig += deviceInfo;
   lightConfig += "}";
-  mqttClient.publish("homeassistant/sensor/arduino_light/config", lightConfig.c_str(), true);
+  mqttClient.publish("homeassistant/sensor/classroom_light_level/config", lightConfig.c_str(), true);
   
-  // Sound sensor discovery
+  // Sound/Noise sensor discovery
   String soundConfig = "{";
-  soundConfig += "\"name\":\"Arduino Sound\",";
+  soundConfig += "\"name\":\"Classroom Noise Level\",";
   soundConfig += "\"state_topic\":\"sensors/sound\",";
-  soundConfig += "\"unit_of_measurement\":\"raw\",";
+  soundConfig += "\"unit_of_measurement\":\"level\",";
   soundConfig += "\"icon\":\"mdi:volume-high\",";
-  soundConfig += "\"unique_id\":\"arduino_sound\",";
-  soundConfig += "\"device\":{\"identifiers\":[\"arduino_sensors\"],\"name\":\"Arduino Sensors\",\"model\":\"UNO R4 WiFi\",\"manufacturer\":\"Arduino\"}";
+  soundConfig += "\"unique_id\":\"classroom_noise_level\",";
+  soundConfig += deviceInfo;
   soundConfig += "}";
-  mqttClient.publish("homeassistant/sensor/arduino_sound/config", soundConfig.c_str(), true);
+  mqttClient.publish("homeassistant/sensor/classroom_noise_level/config", soundConfig.c_str(), true);
   
   // Temperature sensor discovery
   String tempConfig = "{";
-  tempConfig += "\"name\":\"Arduino Temperature\",";
+  tempConfig += "\"name\":\"Classroom Temperature\",";
   tempConfig += "\"state_topic\":\"sensors/temperature\",";
   tempConfig += "\"unit_of_measurement\":\"°C\",";
   tempConfig += "\"device_class\":\"temperature\",";
-  tempConfig += "\"unique_id\":\"arduino_temperature\",";
-  tempConfig += "\"device\":{\"identifiers\":[\"arduino_sensors\"],\"name\":\"Arduino Sensors\",\"model\":\"UNO R4 WiFi\",\"manufacturer\":\"Arduino\"}";
+  tempConfig += "\"unique_id\":\"classroom_temperature\",";
+  tempConfig += deviceInfo;
   tempConfig += "}";
-  mqttClient.publish("homeassistant/sensor/arduino_temperature/config", tempConfig.c_str(), true);
+  mqttClient.publish("homeassistant/sensor/classroom_temperature/config", tempConfig.c_str(), true);
   
   // Humidity sensor discovery
   String humidityConfig = "{";
-  humidityConfig += "\"name\":\"Arduino Humidity\",";
+  humidityConfig += "\"name\":\"Classroom Humidity\",";
   humidityConfig += "\"state_topic\":\"sensors/humidity\",";
   humidityConfig += "\"unit_of_measurement\":\"%\",";
   humidityConfig += "\"device_class\":\"humidity\",";
-  humidityConfig += "\"unique_id\":\"arduino_humidity\",";
-  humidityConfig += "\"device\":{\"identifiers\":[\"arduino_sensors\"],\"name\":\"Arduino Sensors\",\"model\":\"UNO R4 WiFi\",\"manufacturer\":\"Arduino\"}";
+  humidityConfig += "\"unique_id\":\"classroom_humidity\",";
+  humidityConfig += deviceInfo;
   humidityConfig += "}";
-  mqttClient.publish("homeassistant/sensor/arduino_humidity/config", humidityConfig.c_str(), true);
+  mqttClient.publish("homeassistant/sensor/classroom_humidity/config", humidityConfig.c_str(), true);
+  
+  // CO2 sensor discovery
+  String co2Config = "{";
+  co2Config += "\"name\":\"Classroom CO2\",";
+  co2Config += "\"state_topic\":\"sensors/co2\",";
+  co2Config += "\"unit_of_measurement\":\"ppm\",";
+  co2Config += "\"device_class\":\"carbon_dioxide\",";
+  co2Config += "\"unique_id\":\"classroom_co2\",";
+  co2Config += deviceInfo;
+  co2Config += "}";
+  mqttClient.publish("homeassistant/sensor/classroom_co2/config", co2Config.c_str(), true);
+  
+  // Dust sensor discovery
+  String dustConfig = "{";
+  dustConfig += "\"name\":\"Classroom Dust Level\",";
+  dustConfig += "\"state_topic\":\"sensors/dust\",";
+  dustConfig += "\"unit_of_measurement\":\"ug/m3\",";
+  dustConfig += "\"icon\":\"mdi:blur\",";
+  dustConfig += "\"unique_id\":\"classroom_dust_level\",";
+  dustConfig += deviceInfo;
+  dustConfig += "}";
+  mqttClient.publish("homeassistant/sensor/classroom_dust_level/config", dustConfig.c_str(), true);
   
   // Motion sensor discovery (binary sensor)
   String motionConfig = "{";
-  motionConfig += "\"name\":\"Arduino Motion\",";
+  motionConfig += "\"name\":\"Classroom Motion\",";
   motionConfig += "\"state_topic\":\"sensors/motion\",";
   motionConfig += "\"device_class\":\"motion\",";
   motionConfig += "\"payload_on\":\"ON\",";
   motionConfig += "\"payload_off\":\"OFF\",";
-  motionConfig += "\"unique_id\":\"arduino_motion\",";
-  motionConfig += "\"device\":{\"identifiers\":[\"arduino_sensors\"],\"name\":\"Arduino Sensors\",\"model\":\"UNO R4 WiFi\",\"manufacturer\":\"Arduino\"}";
+  motionConfig += "\"unique_id\":\"classroom_motion\",";
+  motionConfig += deviceInfo;
   motionConfig += "}";
-  mqttClient.publish("homeassistant/binary_sensor/arduino_motion/config", motionConfig.c_str(), true);
+  mqttClient.publish("homeassistant/binary_sensor/classroom_motion/config", motionConfig.c_str(), true);
   
-  // Flammable Gas/Smoke sensor discovery (MQ2)
+  // Clap sensor discovery (binary sensor)
+  String clapConfig = "{";
+  clapConfig += "\"name\":\"Classroom Clap\",";
+  clapConfig += "\"state_topic\":\"sensors/clap\",";
+  clapConfig += "\"device_class\":\"sound\",";
+  clapConfig += "\"payload_on\":\"ON\",";
+  clapConfig += "\"payload_off\":\"OFF\",";
+  clapConfig += "\"unique_id\":\"classroom_clap\",";
+  clapConfig += deviceInfo;
+  clapConfig += "}";
+  mqttClient.publish("homeassistant/binary_sensor/classroom_clap/config", clapConfig.c_str(), true);
+  
+  // Gas sensor discovery (binary sensor for detected state)
   String gasConfig = "{";
-  gasConfig += "\"name\":\"Flammable Gas/Smoke\",";
-  gasConfig += "\"state_topic\":\"sensors/gas\",";
-  gasConfig += "\"unit_of_measurement\":\"raw\",";
+  gasConfig += "\"name\":\"Classroom Gas Detected\",";
+  gasConfig += "\"state_topic\":\"sensors/gas_detected\",";
+  gasConfig += "\"device_class\":\"gas\",";
+  gasConfig += "\"payload_on\":\"ON\",";
+  gasConfig += "\"payload_off\":\"OFF\",";
   gasConfig += "\"icon\":\"mdi:fire-alert\",";
-  gasConfig += "\"unique_id\":\"arduino_gas\",";
-  gasConfig += "\"device\":{\"identifiers\":[\"arduino_sensors\"],\"name\":\"Arduino Sensors\",\"model\":\"UNO R4 WiFi\",\"manufacturer\":\"Arduino\"}";
+  gasConfig += "\"unique_id\":\"classroom_gas_detected\",";
+  gasConfig += deviceInfo;
   gasConfig += "}";
-  mqttClient.publish("homeassistant/sensor/arduino_gas/config", gasConfig.c_str(), true);
-  
-  // Dust sensor discovery (Grove PPD42NS)
-  String dustConfig = "{";
-  dustConfig += "\"name\":\"Air Quality (Dust)\",";
-  dustConfig += "\"state_topic\":\"sensors/dust\",";
-  dustConfig += "\"unit_of_measurement\":\"ug/m3\",";
-  dustConfig += "\"icon\":\"mdi:blur\",";
-  dustConfig += "\"unique_id\":\"arduino_dust\",";
-  dustConfig += "\"device\":{\"identifiers\":[\"arduino_sensors\"],\"name\":\"Arduino Sensors\",\"model\":\"UNO R4 WiFi\",\"manufacturer\":\"Arduino\"}";
-  dustConfig += "}";
-  mqttClient.publish("homeassistant/sensor/arduino_dust/config", dustConfig.c_str(), true);
+  mqttClient.publish("homeassistant/binary_sensor/classroom_gas_detected/config", gasConfig.c_str(), true);
   
   Serial.println("Home Assistant discovery config published!");
 }
@@ -830,6 +947,8 @@ void publishToCloud() {
   sensorJson += "\"dust\":{\"value\":" + String(dustMgM3, 2) + ",\"unit\":\"mg/m3\"},";
   sensorJson += "\"gas\":{\"detected\":" + String(gasDetected ? "true" : "false") + "},";
   sensorJson += "\"motion\":{\"detected\":" + String(motionDetected ? "true" : "false") + "},";
+  sensorJson += "\"clap\":{\"detected\":" + String(clapDetected ? "true" : "false") + "},";
+  sensorJson += "\"co2\":{\"value\":" + String(currentCO2ppm) + ",\"unit\":\"ppm\"},";
   sensorJson += "\"device_id\":\"" + String(CLOUD_DEVICE_ID) + "\"";
   sensorJson += "}";
   
@@ -944,6 +1063,7 @@ void sendJsonResponse(WiFiClient& client) {
   json += "\"humidity\":" + String(lastHumidity, 1) + ",";
   json += "\"gas\":" + String(currentGasValue) + ",";
   json += "\"dust\":" + String(dustConcentration, 1) + ",";
+  json += "\"co2\":" + String(currentCO2ppm) + ",";
   json += "\"motion\":" + String(motionDetected ? "true" : "false") + ",";
   json += "\"mode\":\"webserver\"";
   json += "}";
@@ -990,6 +1110,9 @@ void sendHtmlPage(WiFiClient& client) {
   client.println(".dust.danger .icon,.dust.danger .value{color:#ef4444}");
   client.println(".motion .icon,.motion .value{color:#fb923c}");
   client.println(".motion.detected .icon,.motion.detected .value{color:#22c55e}");
+  client.println(".co2 .icon,.co2 .value{color:#10b981}");
+  client.println(".co2.warning .icon,.co2.warning .value{color:#f59e0b}");
+  client.println(".co2.danger .icon,.co2.danger .value{color:#ef4444}");
   client.println(".status{text-align:center;margin-top:20px;color:#64748b;font-size:0.8em}");
   client.println("</style></head><body>");
   
@@ -1020,6 +1143,10 @@ void sendHtmlPage(WiFiClient& client) {
   client.println("<div class='value' id='dust'>--</div>");
   client.println("<div class='label'>Air Quality (Dust)</div></div>");
   
+  client.println("<div class='card co2' id='co2-card'><div class='icon'><i class='fa-solid fa-cloud'></i></div>");
+  client.println("<div class='value' id='co2'>--</div>");
+  client.println("<div class='label'>CO2 Level</div></div>");
+  
   client.println("<div class='card motion' id='motion-card'><div class='icon'><i class='fa-solid fa-person-walking' id='motion-icon'></i></div>");
   client.println("<div class='value' id='motion'>--</div>");
   client.println("<div class='label'>Motion</div></div>");
@@ -1038,6 +1165,8 @@ client.println("document.getElementById('gas').textContent=d.gas>200?'DETECTED (
   client.println("document.getElementById('gas-card').className=d.gas>400?'card gas danger':d.gas>200?'card gas warning':'card gas';");
   client.println("document.getElementById('dust').textContent=d.dust.toFixed(0)+' ug/m3';");
   client.println("document.getElementById('dust-card').className=d.dust>150?'card dust danger':d.dust>75?'card dust warning':'card dust';");
+  client.println("document.getElementById('co2').textContent=d.co2+' ppm';");
+  client.println("document.getElementById('co2-card').className=d.co2>1500?'card co2 danger':d.co2>1000?'card co2 warning':'card co2';");
   client.println("document.getElementById('motion').textContent=d.motion?'DETECTED':'No Movement';");
   client.println("document.getElementById('motion-card').className=d.motion?'card motion wide detected':'card motion wide';");
   client.println("document.getElementById('motion-icon').className=d.motion?'fa-solid fa-person-running':'fa-solid fa-person-walking';");
@@ -1100,7 +1229,22 @@ void updateLcdDisplay() {
       lcd.print(motionDetected ? "DETECTED!" : "None");
       break;
       
-    case 3:  // Dust/Air Quality
+    case 3:  // CO2 Level
+      lcd.setCursor(0, 0);
+      lcd.print("CO2 Level:");
+      lcd.setCursor(0, 1);
+      lcd.print(currentCO2ppm);
+      lcd.print(" ppm ");
+      if (currentCO2ppm > 1500) {
+        lcd.print("BAD!");
+      } else if (currentCO2ppm > 1000) {
+        lcd.print("VENT");
+      } else {
+        lcd.print("GOOD");
+      }
+      break;
+      
+    case 4:  // Dust/Air Quality
       lcd.setCursor(0, 0);
       lcd.print("Air Quality:");
       lcd.setCursor(0, 1);

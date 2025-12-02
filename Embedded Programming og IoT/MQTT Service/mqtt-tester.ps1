@@ -77,8 +77,10 @@ if (-not $Message) {
     $light = Get-Random -Minimum 100 -Maximum 1500                                  # 100 - 1500 lux
     $noise = Get-Random -Minimum 1 -Maximum 10                                      # 1 - 10 level
     $dust = [math]::Round((Get-Random -Minimum 1 -Maximum 20) / 10, 1)             # 0.1 - 2.0 mg/m³
+    $co2 = Get-Random -Minimum 400 -Maximum 2000                                    # 400 - 2000 ppm
     $gasDetected = (Get-Random -Minimum 0 -Maximum 100) -lt 5                       # 5% chance
     $motionDetected = (Get-Random -Minimum 0 -Maximum 100) -lt 30                   # 30% chance
+    $clapDetected = (Get-Random -Minimum 0 -Maximum 100) -lt 10                     # 10% chance
    
     $sensorData = @{
         temperature = @{
@@ -101,11 +103,18 @@ if (-not $Message) {
             value = $dust
             unit = "mg/m3"
         }
+        co2 = @{
+            value = $co2
+            unit = "ppm"
+        }
         gas = @{
             detected = $gasDetected
         }
         motion = @{
             detected = $motionDetected
+        }
+        clap = @{
+            detected = $clapDetected
         }
         timestamp = (Get-Date -Format "o")
         device_id = "classroom-sensor-01"

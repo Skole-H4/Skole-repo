@@ -24,17 +24,122 @@ http:
 logger:
   default: info
 
-# MQTT sensors are now configured via UI integration
-# Go to Settings -> Devices & Services -> Add Integration -> MQTT
-# 
-# MQTT Broker settings:
-#   Host: mqtt-broker
-#   Port: 1883
-#   Username: arduino
-#   Password: sensor1234
-#
-# After MQTT is connected, sensors will auto-discover or add manually:
-#   - sensors/light (lux)
-#   - sensors/sound (raw)  
-#   - sensors/temperature (°C)
-#   - sensors/humidity (%)
+# Enable history and recorder for graphs
+recorder:
+  purge_keep_days: 7
+  commit_interval: 30
+
+history:
+
+# MQTT Configuration
+# Broker connects via docker-compose service name "mqtt-broker"
+mqtt:
+  sensor:
+    # Temperature sensor
+    - name: "Classroom Sensor Classroom Temperature"
+      state_topic: "sensors/temperature"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      icon: mdi:thermometer
+      unique_id: "classroom_sensor_classroom_temperature"
+
+    # Humidity sensor
+    - name: "Classroom Sensor Classroom Humidity"
+      state_topic: "sensors/humidity"
+      unit_of_measurement: "%"
+      device_class: humidity
+      state_class: measurement
+      icon: mdi:water-percent
+      unique_id: "classroom_sensor_classroom_humidity"
+
+    # CO2 sensor
+    - name: "Classroom Sensor Classroom CO2"
+      state_topic: "sensors/co2"
+      unit_of_measurement: "ppm"
+      device_class: carbon_dioxide
+      state_class: measurement
+      icon: mdi:molecule-co2
+      unique_id: "classroom_sensor_classroom_co2"
+
+    # Light sensor
+    - name: "Classroom Sensor Classroom Light Level"
+      state_topic: "sensors/light"
+      unit_of_measurement: "lx"
+      device_class: illuminance
+      state_class: measurement
+      icon: mdi:brightness-6
+      unique_id: "classroom_sensor_classroom_light_level"
+
+    # Sound/Noise sensor
+    - name: "Classroom Sensor Classroom Noise Level"
+      state_topic: "sensors/sound"
+      unit_of_measurement: "level"
+      state_class: measurement
+      icon: mdi:volume-high
+      unique_id: "classroom_sensor_classroom_noise_level"
+
+    # Dust sensor
+    - name: "Classroom Sensor Classroom Dust Level"
+      state_topic: "sensors/dust"
+      unit_of_measurement: "µg/m³"
+      device_class: pm25
+      state_class: measurement
+      icon: mdi:blur
+      unique_id: "classroom_sensor_classroom_dust_level"
+
+    # Gas raw value sensor
+    - name: "Classroom Sensor Classroom Gas Level"
+      state_topic: "sensors/gas"
+      unit_of_measurement: "raw"
+      state_class: measurement
+      icon: mdi:fire
+      unique_id: "classroom_sensor_classroom_gas_level"
+
+  binary_sensor:
+    # Motion sensor
+    - name: "Classroom Sensor Classroom Motion"
+      state_topic: "sensors/motion"
+      payload_on: "ON"
+      payload_off: "OFF"
+      device_class: motion
+      icon: mdi:motion-sensor
+      unique_id: "classroom_sensor_classroom_motion"
+
+    # Clap sensor
+    - name: "Classroom Sensor Classroom Clap"
+      state_topic: "sensors/clap"
+      payload_on: "ON"
+      payload_off: "OFF"
+      device_class: sound
+      icon: mdi:hand-clap
+      unique_id: "classroom_sensor_classroom_clap"
+
+    # Gas detected sensor
+    - name: "Classroom Sensor Classroom Gas Detected"
+      state_topic: "sensors/gas_detected"
+      payload_on: "ON"
+      payload_off: "OFF"
+      device_class: gas
+      icon: mdi:fire-alert
+      unique_id: "classroom_sensor_classroom_gas_detected"
+
+# Template sensors for recommendations
+template:
+  - sensor:
+      - name: "CO2 Air Quality"
+        unique_id: "co2_air_quality_recommendation"
+        state: >
+          {% set co2 = states('sensor.classroom_sensor_classroom_co2') | float(0) %}
+          {% if co2 < 600 %}
+            Excellent
+          {% elif co2 < 1000 %}
+            Good
+          {% elif co2 < 1500 %}
+            Moderate
+          {% elif co2 < 2000 %}
+            Poor
+          {% else %}
+            Bad
+          {% endif %}
+        icon: mdi:air-filter
