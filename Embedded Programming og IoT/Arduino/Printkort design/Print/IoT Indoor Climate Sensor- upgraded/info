@@ -1,0 +1,208 @@
+{
+  "uuid": "c1dffc0c74eda219f1efe6b19303433d",
+  "path": "Offline/IoT%20Indoor%20Climate%20Sensor-%20upgraded",
+  "name": "IoT Indoor Climate Sensor- upgraded",
+  "content": "",
+  "created_at": "2025-12-01 14:06:04",
+  "updated_at": "2025-12-03 09:41:47",
+  "stick": "",
+  "documents": [
+    {
+      "uuid": "c37823c348232a9390ed204e1f4c941e",
+      "title": "Sheet_1",
+      "description": "",
+      "docType": "1",
+      "master": "",
+      "thumb": "/images/thumb-default.png",
+      "components": {
+        "bb009484ef804a24ac5d18c54b249586": 2,
+        "1f6194863e9e4d309ae88bbeec724791": 1,
+        "fdb5d6e74d4b4639aff0aec9a873595f": 1,
+        "d1fbad037417484fb818afbe22579ca7": 1,
+        "2135bff62c7247d1bc75ae50c5ea60d5": 1,
+        "d7ac54ade14545589c55c9160bd8f923": 1,
+        "efa5e0d44d8c4801a2bd893353fa2190": 2,
+        "51292157fb564d83b9fa2a639338876f": 1,
+        "f76e9de5334d4127a760374515e24822": 1,
+        "dfafc23440d5436c9a0cb7d6048d0026": 1,
+        "0b8ed637325342faac525678bf4f3c0f": 1,
+        "ee3ac3a6f8c3427986484f23c31db240": 1
+      },
+      "BOM": [
+        [
+          "Value",
+          "Quantity",
+          "Package",
+          "Components",
+          "CustomPara"
+        ],
+        [
+          "mode-push-button",
+          1,
+          "32TEETH---CONDUCTIVE-BUTTONS_CONDUCTIVE_BUTTON_DIRECTIONAL_THICK",
+          "1",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ],
+        [
+          "EKMB1309113K",
+          2,
+          "PIR-TH_EKMB4308112K",
+          "GROVE-DUST-SENSOR,HC-SR501-PIR-SENSOR",
+          {
+            "Manufacturer Part": "EKMB1309113K",
+            "Manufacturer": "PANASONIC(松下)",
+            "Supplier": "LCSC",
+            "Supplier Part": "C3678642"
+          }
+        ],
+        [
+          "FC-22-MQ2-Gas/Smoke-Sensor",
+          1,
+          "OSC-SMD_4P-L2.5-W2.0-BL-B",
+          "OSC1",
+          {
+            "Manufacturer Part": "AMPMDFC-22.0000T3",
+            "Manufacturer": "ABRACON",
+            "Supplier": "LCSC",
+            "Supplier Part": "C2037761"
+          }
+        ],
+        [
+          "10k",
+          1,
+          "R0603",
+          "R1",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ],
+        [
+          "LDR07",
+          1,
+          "RESISTOR_LDR_5.1X4.3_RM3.4",
+          "R2",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ],
+        [
+          "4.7k",
+          1,
+          "R0603",
+          "R3",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ],
+        [
+          "ARDUINOUNO",
+          1,
+          "ARDUINO",
+          "U1",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ],
+        [
+          "DS18B20",
+          1,
+          "MAXM-U8+1_N",
+          "U2",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ],
+        [
+          "KY-038 Microphone Sound Sensor",
+          1,
+          "KY-037 KY-038 SENSOR SONIDO KY",
+          "U3",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ],
+        [
+          "DHT-11",
+          1,
+          "DHT-11",
+          "U4",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ],
+        [
+          "I2C Adapter LCD",
+          1,
+          "LCDI2CADAPTER",
+          "U5",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ],
+        [
+          "LMC1602C",
+          1,
+          "LCD-1602",
+          "U6",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ],
+        [
+          "DFRobot Gravity CO2 V2.0",
+          1,
+          "",
+          "U7",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "",
+            "Supplier Part": ""
+          }
+        ]
+      ],
+      "updateTime": 1764751307,
+      "createTime": 1764594364,
+      "histories": [],
+      "created_at": "2025-12-01 14:06:04",
+      "updated_at": "2025-12-03 09:41:47"
+    }
+  ],
+  "sort": [],
+  "title": "IoT Indoor Climate Sensor- upgraded",
+  "foldername": "IoT Indoor Climate Sensor- upgraded",
+  "schfilename": "IoT Indoor Climate Sensor- upgraded.json",
+  "schfilemtime": 1764751307031
+}
