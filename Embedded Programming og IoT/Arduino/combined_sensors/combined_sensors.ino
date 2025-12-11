@@ -34,7 +34,7 @@ const char* WIFI_SSID = "prog";
 const char* WIFI_PASSWORD = "Alvorlig5And";
 
 // ============== MQTT CONFIGURATION ==============
-const char* MQTT_SERVER = "10.108.137.214";  // Your PC's WiFi IP address
+const char* MQTT_SERVER = "10.108.137.82";  // Your PC's WiFi IP address
 const int MQTT_PORT = 1883;
 const char* MQTT_USER = "arduino";
 const char* MQTT_PASSWORD = "sensor1234";
@@ -115,7 +115,7 @@ const int CO2_PIN = A3;           // Gravity CO2 Sensor - testing analog read
 
 // ============== LCD CONFIGURATION ==============
 // I2C LCD with WWZMDiB adapter - common addresses are 0x27 or 0x3F
-const uint8_t LCD_ADDRESS = 0x3F;  // Found via I2C scanner
+const uint8_t LCD_ADDRESS = 0x27;  // Found via I2C scanner
 const uint8_t LCD_COLS = 16;
 const uint8_t LCD_ROWS = 2;
 LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);

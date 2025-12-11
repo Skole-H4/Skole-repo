@@ -103,6 +103,40 @@
         "expire_at": 1772457338.93004,
         "credential_id": "576c1fb2b6b34a8393693e795e53b587",
         "version": "2025.11.3"
+      },
+      {
+        "id": "ef72feaf03c14c6b958734b5e88694b4",
+        "user_id": "89628f9e3a00422ba35d058cf0cac032",
+        "client_id": "http://localhost:8123/",
+        "client_name": null,
+        "client_icon": null,
+        "token_type": "normal",
+        "created_at": "2025-12-11T10:15:19.703990+00:00",
+        "access_token_expiration": 1800.0,
+        "token": "4a2e90df6cb7eb64f78aea1b08a5d95ed52b556b2a5ea6914ee0ff24f9483f1fd13aaf8f02f0514dfd850b37b55f175f3d963abd2423fec0ca9a9a16badecebd",
+        "jwt_key": "aab53a1a84f6c307ec35b703d0e39ec6689b9d092e9f8e0242003bb55ead105adf1c05baae8ec91dda8a39e8211acebeb0f50217b05554c5b2b35b4726662ec2",
+        "last_used_at": "2025-12-11T11:29:38.136395+00:00",
+        "last_used_ip": "172.18.0.1",
+        "expire_at": 1773228578.136395,
+        "credential_id": "576c1fb2b6b34a8393693e795e53b587",
+        "version": "2025.11.3"
+      },
+      {
+        "id": "d95581d2b58b4d548014b24da5874a89",
+        "user_id": "89628f9e3a00422ba35d058cf0cac032",
+        "client_id": "http://localhost:8123/",
+        "client_name": null,
+        "client_icon": null,
+        "token_type": "normal",
+        "created_at": "2025-12-11T11:50:35.533785+00:00",
+        "access_token_expiration": 1800.0,
+        "token": "73ff177fbe02e2eb7bd14be2036192b88f9dd486776308efcff154ad62c95b366bb4127d18a75f7718adb54bef3eb3fa11c3c1b4d4d1e5e0dfbf2f5d936e6e15",
+        "jwt_key": "03bbdc60b9eb629148bd2167e43fe89502fd8c7ac227f25798654604ec4419751b75eba0e778c25720669637f489b8c3f40c3207ca1ef795c26191464f388390",
+        "last_used_at": "2025-12-11T11:50:35.533916+00:00",
+        "last_used_ip": "172.18.0.1",
+        "expire_at": 1773229835.533916,
+        "credential_id": "576c1fb2b6b34a8393693e795e53b587",
+        "version": "2025.11.3"
       }
     ]
   }
