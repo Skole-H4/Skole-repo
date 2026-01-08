@@ -1,0 +1,109 @@
+#!/bin/bash
+# postinst - Runs after package installation
+set -e
+
+SSHGUARD_GROUP="sshGuard"
+SSHD_CONFIG_DIR="/etc/ssh/sshd_config.d"
+SSHGUARD_SSH_CONFIG="$SSHD_CONFIG_DIR/sshguard.conf"
+PAM_SSH="/etc/pam.d/sshd"
+ALLOWED_USER_FILE="/run/sshguard/allowed_user"
+
+case "$1" in
+    configure)
+        echo "Configuring sshGuard..."
+
+        # Create sshGuard group if it doesn't exist
+        if ! getent group "$SSHGUARD_GROUP" > /dev/null 2>&1; then
+            groupadd "$SSHGUARD_GROUP"
+            echo "Created group: $SSHGUARD_GROUP"
+        fi
+
+        # Create SSH config
+        if [ -d "$SSHD_CONFIG_DIR" ]; then
+            cat > "$SSHGUARD_SSH_CONFIG" << 'EOF'
+# sshGuard SSH Security Configuration
+# Only allow users in the sshGuard group to log in via SSH
+AllowGroups sshGuard
+
+# Security settings
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+EOF
+            chmod 644 "$SSHGUARD_SSH_CONFIG"
+            echo "Created SSH config: $SSHGUARD_SSH_CONFIG"
+        fi
+
+        # Configure PAM for dynamic user restriction
+        PAM_SSHGUARD_LINE="account required pam_listfile.so onerr=succeed item=user sense=allow file=$ALLOWED_USER_FILE"
+        
+        if [ -f "$PAM_SSH" ]; then
+            # Remove any old sshGuard PAM rules first
+            sed -i '/# sshGuard/d' "$PAM_SSH"
+            sed -i "\|$ALLOWED_USER_FILE|d" "$PAM_SSH"
+            
+            # Add new rule after @include common-account or first account line
+            if grep -q "@include common-account" "$PAM_SSH"; then
+                sed -i '/@include common-account/a # sshGuard: Only allow the detected user during access window\naccount required pam_listfile.so onerr=succeed item=user sense=allow file='"$ALLOWED_USER_FILE" "$PAM_SSH"
+            else
+                sed -i '0,/^account/{s/^account.*$/&\n# sshGuard: Only allow the detected user during access window\naccount required pam_listfile.so onerr=succeed item=user sense=allow file='"$ALLOWED_USER_FILE"'/}' "$PAM_SSH"
+            fi
+            echo "Configured PAM for per-user restriction"
+        fi
+
+        # Create empty users.conf if it doesn't exist
+        if [ ! -f /opt/sshGuard/users.conf ]; then
+            cat > /opt/sshGuard/users.conf << 'EOF'
+# Face ID to username mapping
+# Format: face_id=username
+# Example:
+# 1=martin
+# 2=anders
+EOF
+            chmod 644 /opt/sshGuard/users.conf
+            echo "Created /opt/sshGuard/users.conf"
+        fi
+
+        # Set permissions
+        chmod 755 /opt/sshGuard
+        chmod 755 /opt/sshGuard/sshguard.py
+        chmod 755 /opt/sshGuard/huskylens_reader.py
+        chmod 755 /opt/sshGuard/create-user.sh
+
+        # Reload systemd and enable service (skip if systemd not running - e.g., Docker)
+        if pidof systemd > /dev/null 2>&1; then
+            systemctl daemon-reload
+            systemctl enable sshguard.service
+            
+            # Restart SSH to apply config
+            systemctl restart ssh || systemctl restart sshd || true
+        else
+            echo "Note: systemd not running, skipping service enable (manual start required)"
+        fi
+
+        echo ""
+        echo "=========================================="
+        echo "sshGuard installed successfully!"
+        echo "=========================================="
+        echo ""
+        echo "Next steps:"
+        echo "1. Add users: sudo /opt/sshGuard/create-user.sh <username>"
+        echo "2. Learn faces on HuskyLens (long-press learn button)"
+        echo "3. Map faces: echo '1=username' >> /opt/sshGuard/users.conf"
+        echo "4. Start service: sudo systemctl start sshguard"
+        echo ""
+        echo "Test HuskyLens: python3 /opt/sshGuard/huskylens_reader.py"
+        echo ""
+        ;;
+    
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    
+    *)
+        echo "postinst called with unknown argument: $1" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

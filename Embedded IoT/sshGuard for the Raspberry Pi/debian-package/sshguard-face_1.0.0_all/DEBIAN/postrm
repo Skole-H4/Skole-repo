@@ -1,0 +1,83 @@
+#!/bin/bash
+# postrm - Runs after package removal
+set -e
+
+SSHGUARD_GROUP="sshGuard"
+SSHD_CONFIG_DIR="/etc/ssh/sshd_config.d"
+SSHGUARD_SSH_CONFIG="$SSHD_CONFIG_DIR/sshguard.conf"
+PAM_SSH="/etc/pam.d/sshd"
+ALLOWED_USER_FILE="/run/sshguard/allowed_user"
+
+case "$1" in
+    remove)
+        echo "Cleaning up sshGuard configuration..."
+
+        # Remove SSH config
+        if [ -f "$SSHGUARD_SSH_CONFIG" ]; then
+            rm -f "$SSHGUARD_SSH_CONFIG"
+            echo "Removed $SSHGUARD_SSH_CONFIG"
+        fi
+
+        # Remove PAM rule
+        if [ -f "$PAM_SSH" ]; then
+            sed -i '/# sshGuard/d' "$PAM_SSH"
+            sed -i "\|$ALLOWED_USER_FILE|d" "$PAM_SSH"
+            echo "Removed sshGuard PAM rule"
+        fi
+
+        # Remove runtime directory
+        rm -rf /run/sshguard
+
+        # Restart SSH to apply changes
+        systemctl restart ssh || systemctl restart sshd || true
+
+        echo "SSH configuration restored to defaults"
+        echo ""
+        echo "Note: The sshGuard group and users.conf were preserved."
+        echo "To fully remove: sudo groupdel $SSHGUARD_GROUP"
+        echo "                 sudo rm -rf /opt/sshGuard"
+        ;;
+
+    purge)
+        echo "Purging sshGuard completely..."
+
+        # Remove SSH config
+        rm -f "$SSHGUARD_SSH_CONFIG"
+
+        # Remove PAM rule
+        if [ -f "$PAM_SSH" ]; then
+            sed -i '/# sshGuard/d' "$PAM_SSH"
+            sed -i "\|$ALLOWED_USER_FILE|d" "$PAM_SSH"
+        fi
+
+        # Remove runtime directory
+        rm -rf /run/sshguard
+
+        # Remove data directory
+        rm -rf /opt/sshGuard
+
+        # Remove users from group before deleting
+        if getent group "$SSHGUARD_GROUP" > /dev/null 2>&1; then
+            for user in $(getent group "$SSHGUARD_GROUP" | cut -d: -f4 | tr ',' ' '); do
+                gpasswd -d "$user" "$SSHGUARD_GROUP" 2>/dev/null || true
+            done
+            groupdel "$SSHGUARD_GROUP" 2>/dev/null || true
+            echo "Removed group: $SSHGUARD_GROUP"
+        fi
+
+        # Restart SSH
+        systemctl restart ssh || systemctl restart sshd || true
+
+        echo "sshGuard completely purged"
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument: $1" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

@@ -1,0 +1,39 @@
+[Unit]
+Description=sshGuard - HuskyLens Face Recognition SSH Access Control
+Documentation=https://github.com/Skole-H4/Skole-repo
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/sshGuard/sshguard.py --strict
+Restart=always
+RestartSec=5
+
+# Run as root (required for systemctl ssh control)
+User=root
+Group=root
+
+# Working directory
+WorkingDirectory=/opt/sshGuard
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+# Logging - output goes to journalctl
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sshguard
+
+# Security hardening (limited, since we need root for ssh control)
+NoNewPrivileges=no
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/log
+
+# Runtime directory for allowed_user file (auto-created under /run)
+RuntimeDirectory=sshguard
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

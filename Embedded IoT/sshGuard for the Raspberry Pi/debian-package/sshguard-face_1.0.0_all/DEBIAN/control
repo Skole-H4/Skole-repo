@@ -1,0 +1,22 @@
+Package: sshguard-face
+Version: 1.0.0
+Section: admin
+Priority: optional
+Architecture: all
+Depends: python3, python3-serial, systemd
+Recommends: zenity, putty-tools
+Maintainer: Your Name <your.email@example.com>
+Description: Face recognition SSH access control using HuskyLens
+ sshGuard uses a HuskyLens camera module to detect authorized users
+ and temporarily enables SSH access only when a recognized face is detected.
+ .
+ Features:
+  - Face-based SSH access control
+  - Per-user authorization (only detected user can log in)
+  - SSH key-only authentication
+  - AllowGroups restriction to sshGuard group
+  - Strict mode: SSH only runs during detection windows
+  - Desktop notifications via Zenity
+ .
+ Requires HuskyLens connected via UART to /dev/serial0.
+Homepage: https://github.com/your-repo/sshguard-face
