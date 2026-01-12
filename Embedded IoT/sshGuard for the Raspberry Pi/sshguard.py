@@ -846,7 +846,7 @@ def parse_arguments() -> Config:
     parser.add_argument(
         "--cooldown", 
         type=int, 
-        default=20, 
+        default=3, 
         help="Seconds before re-triggering is allowed"
     )
     parser.add_argument(
